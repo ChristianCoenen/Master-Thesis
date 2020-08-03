@@ -42,8 +42,9 @@ def show_reconstructions(model, images=x_test_norm, n_images=10):
 
 # Custom layer to tie the weights of the encoder and decoder
 class DenseTranspose(keras.layers.Layer):
-    def __init__(self, dense, activation=None, **kwargs):
+    def __init__(self, dense, dense2=None, activation=None, **kwargs):
         self.dense = dense
+        self.dense2 = dense2
         self.activation = keras.activations.get(activation)
         super().__init__(**kwargs)
 
@@ -52,32 +53,45 @@ class DenseTranspose(keras.layers.Layer):
         super().build(batch_input_shape)
 
     def call(self, inputs):
-        z = tf.matmul(inputs, self.dense.weights[0], transpose_b=True)
+        weights = self.dense.weights[0]
+        if self.dense2:
+            weights = tf.concat([self.dense.weights[0], self.dense2.weights[0]], 1)
+
+        z = tf.matmul(inputs, weights, transpose_b=True)
         return self.activation(z + self.biases)
 
-
-latent_neurons = 940
-classify_neurons = 10
 input_shape = (28, 28, 1)
+encoder_1_neurons = 100
+latent_space_neurons = 40
+classification_neurons = 10
+decoder_1_neurons = encoder_1_neurons
 # Model: Stacked Autoencoder with tied (shared) weights.
-# Encoder
+
+# Define encoder side
 inputs = keras.Input(shape=input_shape)
-x = layers.Flatten()(inputs)
-dense = layers.Dense(latent_neurons + classify_neurons, activation="sigmoid", name='encoder')
-x = dense(x)
+flatten = layers.Flatten()
+input_layer_to_encoder_1 = layers.Dense(encoder_1_neurons, activation="sigmoid", name='encoder')
+encoder_1_to_classification = layers.Dense(classification_neurons, activation="softmax", name='classification')
+encoder_1_to_latent_space = layers.Dense(latent_space_neurons, activation="sigmoid", name='latent_space')
 
-# Latent space: contains classification neurons and latent space neurons
-classification_neurons = layers.Dense(classify_neurons, activation="softmax", name='classification')(x)
-latent_space_neurons = layers.Dense(latent_neurons, activation="sigmoid", name='latent_space')(x)
+# Define decoder side
+latent_classification_to_decoder_1 = DenseTranspose(encoder_1_to_latent_space, encoder_1_to_classification,
+                                                    activation="sigmoid", name="decoder")
+decoder_1_to_output = DenseTranspose(input_layer_to_encoder_1, activation="sigmoid", name="outputs")
+
+# Connect network
+x = flatten(inputs)
+x = input_layer_to_encoder_1(x)
+classification = encoder_1_to_classification(x)
+latent_space = encoder_1_to_latent_space(x)
 # Merge classification neurons and latent space neurons into a single vector via concatenation
-x = layers.concatenate([classification_neurons, latent_space_neurons])
-
-# Decoder
-x = DenseTranspose(dense, activation="sigmoid", name="decoder")(x)
+x = layers.concatenate([classification, latent_space])
+x = latent_classification_to_decoder_1(x)
+x = decoder_1_to_output(x)
 outputs = layers.Reshape(input_shape, name='reconstructions')(x)
 
 # Build & Show the model
-tied_ae_model = keras.Model(inputs=inputs, outputs=[classification_neurons, outputs], name="mnist")
+tied_ae_model = keras.Model(inputs=inputs, outputs=[classification, outputs], name="mnist")
 tied_ae_model.summary()
 keras.utils.plot_model(tied_ae_model, "model_architecture.png", show_shapes=True)
 
