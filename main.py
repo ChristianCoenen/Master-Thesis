@@ -101,9 +101,24 @@ history = tied_ae_model.fit(x_train_norm, [y_train, x_train_norm], epochs=2,
                             validation_data=[(x_test_norm, y_test), (x_test_norm, x_test_norm)])
 
 # verify that encoder & decoder weights are the same
-# encoder_weights = np.array(tied_ae_model.layers[2].get_weights())
-# decoder_weights = np.array(tied_ae_model.layers[6].get_weights())
-# assert_array_equal(decoder_weights[1], encoder_weights[0])
+# Outer weights
+encoder_weights = np.array(tied_ae_model.layers[2].get_weights())
+decoder_weights = np.array(tied_ae_model.layers[7].get_weights())
+# Weights
+assert_array_equal(decoder_weights[1], encoder_weights[0])
+#Bias
+assert_array_equal(decoder_weights[2], encoder_weights[1])
+
+# Inner weights
+latent_weights = np.array(tied_ae_model.layers[4].get_weights())
+classification_weights = np.array(tied_ae_model.layers[3].get_weights())
+decoder_weights = np.array(tied_ae_model.layers[6].get_weights())
+# Weights
+assert_array_equal(decoder_weights[1], latent_weights[0])
+assert_array_equal(decoder_weights[3], classification_weights[0])
+# Bias
+assert_array_equal(decoder_weights[1], latent_weights[0])
+assert_array_equal(decoder_weights[3], classification_weights[0])
 
 # Show 10 inputs and their outputs
 show_reconstructions(tied_ae_model)
