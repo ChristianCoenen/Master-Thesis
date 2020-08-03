@@ -4,14 +4,16 @@ from tensorflow.keras import layers
 import requests
 import matplotlib.pyplot as plt
 import numpy as np
+from numpy.testing import assert_array_equal
+
 requests.packages.urllib3.disable_warnings()
 
 # Get data
 (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
 x_train_norm = x_train.astype("float32") / 255
-x_train_norm = np.reshape(x_train_norm, (60000,28,28,1))
+x_train_norm = np.reshape(x_train_norm, (60000, 28, 28, 1))
 x_test_norm = x_test.astype("float32") / 255
-x_test_norm = np.reshape(x_test_norm, (10000,28,28,1))
+x_test_norm = np.reshape(x_test_norm, (10000, 28, 28, 1))
 
 # Labels -> One Hot encoding
 n_classes = 10
@@ -20,20 +22,23 @@ y_train = keras.utils.to_categorical(y_train, n_classes)
 y_test = keras.utils.to_categorical(y_test, n_classes)
 print("Shape after one-hot encoding: ", y_train.shape)
 
+
 def plot_image(image):
     plt.imshow(image, cmap="binary")
     plt.axis("off")
+
 
 def show_reconstructions(model, images=x_test_norm, n_images=10):
     reconstructions = model.predict(images[:n_images])
     fig = plt.figure(figsize=(n_images * 1.5, 3))
     for image_index in range(n_images):
         plt.subplot(3, n_images, 1 + image_index)
-        plot_image(np.reshape(images[image_index], (28,28)))
+        plot_image(np.reshape(images[image_index], (28, 28)))
         plt.subplot(3, n_images, 1 + n_images + image_index)
-        plot_image(np.reshape(reconstructions[1][image_index], (28,28)))
+        plot_image(np.reshape(reconstructions[1][image_index], (28, 28)))
         x = plt.subplot(3, n_images, 1 + n_images + image_index)
-        x.annotate(str(np.argmax(reconstructions[0][image_index])),xy=(0,image_index))
+        x.annotate(str(np.argmax(reconstructions[0][image_index])), xy=(0, image_index))
+
 
 # Custom layer to tie the weights of the encoder and decoder
 class DenseTranspose(keras.layers.Layer):
@@ -45,7 +50,7 @@ class DenseTranspose(keras.layers.Layer):
     def build(self, batch_input_shape):
         self.biases = self.add_weight(name="bias", shape=[self.dense.input_shape[-1]], initializer="zeros")
         super().build(batch_input_shape)
-    
+
     def call(self, inputs):
         z = tf.matmul(inputs, self.dense.weights[0], transpose_b=True)
         return self.activation(z + self.biases)
@@ -78,8 +83,13 @@ keras.utils.plot_model(tied_ae_model, "model_architecture.png", show_shapes=True
 
 # Compile & Train
 tied_ae_model.compile(loss=["mean_squared_error", "binary_crossentropy"], optimizer="adam", metrics=["accuracy"])
-history = tied_ae_model.fit(x_train_norm, [y_train, x_train_norm], epochs=2, 
-    validation_data=[(x_test_norm, y_test), (x_test_norm, x_test_norm)])
+history = tied_ae_model.fit(x_train_norm, [y_train, x_train_norm], epochs=2,
+                            validation_data=[(x_test_norm, y_test), (x_test_norm, x_test_norm)])
+
+# verify that encoder & decoder weights are the same
+# encoder_weights = np.array(tied_ae_model.layers[2].get_weights())
+# decoder_weights = np.array(tied_ae_model.layers[6].get_weights())
+# assert_array_equal(decoder_weights[1], encoder_weights[0])
 
 # Show 10 inputs and their outputs
 show_reconstructions(tied_ae_model)
