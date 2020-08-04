@@ -41,6 +41,11 @@ def verify_shared_weights(encoder_layer, decoder_layer, classification_layer=Non
         assert_array_equal(decoder_weights[0], encoder_weights[0])
 
 
+# Config GPU if available
+physical_devices = tf.config.experimental.list_physical_devices('GPU')
+print(f"Num GPUs Available: {len(physical_devices)}")
+tf.config.experimental.set_memory_growth(physical_devices[0], True) if physical_devices else None
+
 # Get data
 (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
 x_train_norm = x_train.astype("float32") / 255
@@ -93,6 +98,7 @@ class DenseTranspose(keras.layers.Layer):
         z = tf.matmul(inputs, weights, transpose_b=True)
         return self.activation(z + self.biases)
 
+
 input_shape = (28, 28, 1)
 encoder_1_neurons = 100
 latent_space_neurons = 40
@@ -130,8 +136,8 @@ keras.utils.plot_model(tied_ae_model, "model_architecture.png", show_shapes=True
 
 # Compile & Train
 tied_ae_model.compile(loss=["mean_squared_error", "binary_crossentropy"], optimizer="adam", metrics=["accuracy"])
-history = tied_ae_model.fit(x_train_norm, [y_train, x_train_norm], epochs=2,
-                            validation_data=[(x_test_norm, y_test), (x_test_norm, x_test_norm)])
+history = tied_ae_model.fit(x_train_norm, [y_train, x_train_norm], epochs=5,
+                            validation_split=[(x_test_norm, y_test), (x_test_norm, x_test_norm)])
 
 # verify that encoder & decoder weights are the same
 verify_shared_weights(input_layer_to_encoder_1, decoder_1_to_output)
