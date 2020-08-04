@@ -8,6 +8,39 @@ from numpy.testing import assert_array_equal
 
 requests.packages.urllib3.disable_warnings()
 
+
+def get_weights_no_bias(layer):
+    # Get all weight matrices from a specific layer, ignore the bias arrays
+    weights = []
+    for i, weight_var in enumerate(layer.weights):
+        weights.append(layer.get_weights()[i]) if 'kernel' in weight_var.name else None
+    return weights
+
+
+def verify_shared_weights(encoder_layer, decoder_layer, classification_layer=None):
+    # Get all encoder & decoder weights (no biases, cause they can't be shared anyway)
+    encoder_weights = get_weights_no_bias(encoder_layer)
+    decoder_weights = get_weights_no_bias(decoder_layer)
+    classification_weights = get_weights_no_bias(classification_layer) if classification_layer else None
+
+    # Verify that the layers only have one weight matrix, otherwise shared weights can't be verified
+    if classification_layer:
+        assert len(encoder_weights) == 1 and len(classification_weights) == 1 and len(decoder_weights) == 2
+    else:
+        assert len(encoder_weights) == 1 and len(decoder_weights) == 1
+
+    # Verify that weights are the same
+    if classification_layer:
+        if decoder_weights[0].shape == encoder_weights[0].shape:
+            assert_array_equal(decoder_weights[0], encoder_weights[0])
+            assert_array_equal(decoder_weights[1], classification_weights[0])
+        else:
+            assert_array_equal(decoder_weights[1], encoder_weights[0])
+            assert_array_equal(decoder_weights[0], classification_weights[0])
+    else:
+        assert_array_equal(decoder_weights[0], encoder_weights[0])
+
+
 # Get data
 (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
 x_train_norm = x_train.astype("float32") / 255
@@ -101,24 +134,8 @@ history = tied_ae_model.fit(x_train_norm, [y_train, x_train_norm], epochs=2,
                             validation_data=[(x_test_norm, y_test), (x_test_norm, x_test_norm)])
 
 # verify that encoder & decoder weights are the same
-# Outer weights
-encoder_weights = np.array(tied_ae_model.layers[2].get_weights())
-decoder_weights = np.array(tied_ae_model.layers[7].get_weights())
-# Weights
-assert_array_equal(decoder_weights[1], encoder_weights[0])
-#Bias
-assert_array_equal(decoder_weights[2], encoder_weights[1])
-
-# Inner weights
-latent_weights = np.array(tied_ae_model.layers[4].get_weights())
-classification_weights = np.array(tied_ae_model.layers[3].get_weights())
-decoder_weights = np.array(tied_ae_model.layers[6].get_weights())
-# Weights
-assert_array_equal(decoder_weights[1], latent_weights[0])
-assert_array_equal(decoder_weights[3], classification_weights[0])
-# Bias
-assert_array_equal(decoder_weights[1], latent_weights[0])
-assert_array_equal(decoder_weights[3], classification_weights[0])
+verify_shared_weights(input_layer_to_encoder_1, decoder_1_to_output)
+verify_shared_weights(encoder_1_to_latent_space, latent_classification_to_decoder_1, encoder_1_to_classification)
 
 # Show 10 inputs and their outputs
 show_reconstructions(tied_ae_model)
