@@ -137,7 +137,7 @@ keras.utils.plot_model(tied_ae_model, "model_architecture.png", show_shapes=True
 # Compile & Train
 tied_ae_model.compile(loss=["mean_squared_error", "binary_crossentropy"], optimizer="adam", metrics=["accuracy"])
 history = tied_ae_model.fit(x_train_norm, [y_train, x_train_norm], epochs=5,
-                            validation_split=[(x_test_norm, y_test), (x_test_norm, x_test_norm)])
+                            validation_data=(x_test_norm, (y_test, x_test_norm)))
 
 # verify that encoder & decoder weights are the same
 verify_shared_weights(input_layer_to_encoder_1, decoder_1_to_output)
