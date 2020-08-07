@@ -6,7 +6,6 @@ from numpy import zeros
 import matplotlib.pyplot as plt
 import numpy as np
 import config
-import random
 
 
 class Generator:
@@ -61,11 +60,12 @@ class Generator:
 
         # Build the connected network
         self.generator = keras.Model(inputs=self.generator_inputs, outputs=outputs, name="generator")
+        return self.generator
 
     # generate points in latent space as input for the generator
     def generate_latent_and_classification_points(self, n_samples=10):
         # generate points in the latent space
-        x_latent = np.random.random((10, 40))
+        x_latent = np.random.random((n_samples, config.LATENT_SPACE_NEURONS))
         x_classification = randint(config.CLASSIFICATION_NEURONS, size=n_samples)
         x_classification = keras.utils.to_categorical(x_classification, num_classes=config.CLASSIFICATION_NEURONS)
         return np.concatenate((x_latent, x_classification), axis=1)
