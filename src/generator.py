@@ -1,6 +1,6 @@
 from tensorflow import keras
 from tensorflow.keras import layers
-from src.dense_transpose import DenseTranspose
+from src.custom_layers import DenseTranspose
 from numpy.random import randint
 from numpy import zeros
 import matplotlib.pyplot as plt
