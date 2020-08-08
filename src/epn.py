@@ -11,12 +11,17 @@ import config
 
 
 class EntropyPropagationNetwork:
-    def __init__(self, dataset='mnist'):
-        self.input_shape = config.INPUT_SHAPE
+    def __init__(self, dataset='mnist', weight_sharing=True):
+        self.img_rows = config.INPUT_SHAPE[0]
+        self.img_cols = config.INPUT_SHAPE[1]
+        self.channels = config.INPUT_SHAPE[2]
+        self.input_shape = (self.img_rows, self.img_cols, self.channels)
         self.latent_dim = config.LATENT_DIM
         self.encoder_dim = config.ENCODER_DIM
+        self.decoder_dim = config.DECODER_DIM
         self.classification_dim = config.CLASSIFICATION_DIM
 
+        self.weight_sharing = weight_sharing
         if dataset == 'mnist':
             (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_mnist()
 
@@ -61,8 +66,15 @@ class EntropyPropagationNetwork:
         latent_space = encoder_to_latent_space(x)
         # Merge classification neurons and latent space neurons into a single vector via concatenation
         x = layers.concatenate([classification, latent_space])
-        x = DenseTranspose(encoder_to_latent_space, encoder_to_classification, activation="sigmoid", name="decoder")(x)
-        x = DenseTranspose(input_layer_to_encoder, activation="sigmoid", name="outputs")(x)
+
+        if self.weight_sharing:
+            x = DenseTranspose(encoder_to_latent_space, encoder_to_classification,
+                               activation="sigmoid", name="decoder")(x)
+            x = DenseTranspose(input_layer_to_encoder, activation="sigmoid", name="outputs")(x)
+        else:
+            x = Dense(self.decoder_dim, activation="sigmoid", name="decoder")(x)
+            x = Dense(self.img_rows * self.img_cols, activation="sigmoid", name="outputs")(x)
+
         outputs = Reshape(self.input_shape, name="reconstructions")(x)
         return Model(inputs, outputs=[classification, outputs], name="autoencoder")
 
