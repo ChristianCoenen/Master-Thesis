@@ -11,29 +11,26 @@ from pathlib import Path
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
-import config
 
 
 class EntropyPropagationNetwork:
-    def __init__(self, dataset='mnist', weight_sharing=True):
-        self.img_rows = config.INPUT_SHAPE[0]
-        self.img_cols = config.INPUT_SHAPE[1]
-        self.channels = config.INPUT_SHAPE[2]
-        self.input_shape = (self.img_rows, self.img_cols, self.channels)
-        self.latent_dim = config.LATENT_DIM
-        self.encoder_dim = config.ENCODER_DIM
-        self.decoder_dim = config.DECODER_DIM
-        self.classification_dim = config.CLASSIFICATION_DIM
+    def __init__(self, dataset='mnist', weight_sharing=True, encoder_dims=None, latent_dim=40, classification_dim=10):
+        # default None because of side effects with mutable default values
+        self.encoder_dims = [100] if encoder_dims is None else encoder_dims
+        self.latent_dim = latent_dim
+        self.classification_dim = classification_dim
 
         self.weight_sharing = weight_sharing
         if dataset == 'mnist':
             (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_mnist()
 
+        self.input_shape = self.x_train_norm.shape[1:]
+
         self.discriminator = self.build_discriminator()
         self.discriminator.compile(loss='binary_crossentropy', optimizer=Adam(0.0002, 0.5), metrics=['accuracy'])
 
         self.autoencoder = self.build_autoencoder()
-        # TODO: not working at the moment, should be fixed in Tensorflow 2.4
+        # TODO: ssim_loss not working at the moment, should be fixed in Tensorflow 2.4
         # ssim_loss = tf.reduce_mean(tf.image.ssim_multiscale(self.autoencoder.input, self.autoencoder.output[-1], 1.0))
         self.autoencoder.compile(loss=["mean_squared_error", "binary_crossentropy"], optimizer="adam",
                                  metrics=["accuracy"])
@@ -61,28 +58,39 @@ class EntropyPropagationNetwork:
 
     def build_autoencoder(self):
         # Define shared layers
-        input_layer_to_encoder = Dense(self.encoder_dim, activation="sigmoid", name='encoder')
-        encoder_to_classification = Dense(self.classification_dim, activation="softmax", name='classification')
-        encoder_to_latent_space = Dense(self.latent_dim, activation="sigmoid", name='latent_space')
+        encoder_layers = []
+        for idx, encoder_layer in enumerate(self.encoder_dims):
+            encoder_layers.append(Dense(self.encoder_dims[idx], activation="sigmoid", name=f'encoder_{idx}'))
+        encoder_to_classification = Dense(self.classification_dim, activation="softmax",
+                                          name=f'encoder_{len(self.encoder_dims) }_classification')
+        encoder_to_latent_space = Dense(self.latent_dim, activation="sigmoid",
+                                        name=f'encoder_{len(self.encoder_dims)}_latent_space')
 
-        inputs = Input(shape=self.input_shape)
+        inputs = Input(shape=self.input_shape, name="encoder_input")
         x = Flatten()(inputs)
 
-        x = input_layer_to_encoder(x)
+        # Build encoder side
+        for idx, encoder_layer in enumerate(encoder_layers):
+            x = encoder_layers[idx](x)
         classification = encoder_to_classification(x)
         latent_space = encoder_to_latent_space(x)
         # Merge classification neurons and latent space neurons into a single vector via concatenation
         x = layers.concatenate([classification, latent_space])
 
+        # Build decoder side
         if self.weight_sharing:
             x = DenseTranspose(encoder_to_latent_space, encoder_to_classification,
-                               activation="sigmoid", name="decoder")(x)
-            x = DenseTranspose(input_layer_to_encoder, activation="sigmoid", name="outputs")(x)
+                               activation="sigmoid", name="decoder_0")(x)
+            for idx, encoder_layer in enumerate(reversed(encoder_layers)):
+                x = DenseTranspose(encoder_layer, activation="sigmoid", name=f"decoder_{1 + idx}")(x)
         else:
-            x = Dense(self.decoder_dim, activation="sigmoid", name="decoder")(x)
-            x = Dense(self.img_rows * self.img_cols, activation="sigmoid", name="outputs")(x)
+            for idx, encoder_layer in enumerate(reversed(encoder_layers)):
+                x = Dense(encoder_layer.output_shape[-1], activation="sigmoid",
+                          name=f"decoder_{idx}")(x)
+            x = Dense(np.prod(self.input_shape), activation="sigmoid", name=f"decoder_{len(self.encoder_dims)}")(x)
 
         outputs = Reshape(self.input_shape, name="reconstructions")(x)
+
         return Model(inputs, outputs=[classification, outputs], name="autoencoder")
 
     def generate_fake_samples(self, n_samples):
