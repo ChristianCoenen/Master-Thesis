@@ -41,5 +41,13 @@ make sure to set the graphviz flag in the config.py in the root folder
 ```python
 GRAPHVIZ = True
 ```
+
+## Troubleshooting
+### SSL Certificate issue
+Likely on MacOS. Can be fixed when running the following command to install 
+necessary certificates:
+```bash
+/Applications/Python 3.8/Install Certificates.command
+```
         
         
