@@ -32,7 +32,7 @@ class EntropyPropagationNetwork:
         self.discriminator = self.build_discriminator()
         self.discriminator.compile(loss='binary_crossentropy', optimizer=Adam(0.0002, 0.5), metrics=['accuracy'])
 
-        self.autoencoder = self.build_autoencoder()
+        self.encoder, self.decoder, self.autoencoder = self.build_autoencoder()
         # TODO: ssim_loss not working at the moment, should be fixed in Tensorflow 2.4
         # ssim_loss = tf.reduce_mean(tf.image.ssim_multiscale(self.autoencoder.input, self.autoencoder.output[-1], 1.0))
         self.autoencoder.compile(loss=["mean_squared_error", "binary_crossentropy"], optimizer="adam",
@@ -69,44 +69,54 @@ class EntropyPropagationNetwork:
         encoder_to_latent_space = Dense(self.latent_dim, activation="sigmoid",
                                         name=f'encoder_{len(self.encoder_dims)}_latent_space')
 
-        inputs = Input(shape=self.input_shape, name="encoder_input")
-        x = Flatten()(inputs)
+        # Build encoder model
+        encoder_inputs = Input(shape=self.input_shape, name="encoder_input")
+        x = Flatten()(encoder_inputs)
 
-        # Build encoder side
         for idx, encoder_layer in enumerate(encoder_layers):
             x = encoder_layers[idx](x)
         classification = encoder_to_classification(x)
         latent_space = encoder_to_latent_space(x)
         # Merge classification neurons and latent space neurons into a single vector via concatenation
-        x = layers.concatenate([classification, latent_space])
+        encoded = layers.concatenate([classification, latent_space])
+        encoder_model = Model(encoder_inputs, outputs=encoded, name="encoder")
 
         # Build decoder side
+        decoder_inputs = Input(shape=self.latent_dim + self.classification_dim, name="decoder_input")
         if self.weight_sharing:
             x = DenseTranspose(encoder_to_latent_space, encoder_to_classification,
-                               activation="sigmoid", name="decoder_0")(x)
+                               activation="sigmoid", name="decoder_0")(decoder_inputs)
             for idx, encoder_layer in enumerate(reversed(encoder_layers)):
                 x = DenseTranspose(encoder_layer, activation="sigmoid", name=f"decoder_{1 + idx}")(x)
         else:
             for idx, encoder_layer in enumerate(reversed(encoder_layers)):
-                x = Dense(encoder_layer.output_shape[-1], activation="sigmoid",
-                          name=f"decoder_{idx}")(x)
+                if idx == 0:
+                    x = Dense(encoder_layer.output_shape[-1], activation="sigmoid",
+                              name=f"decoder_{idx}")(decoder_inputs)
+                else:
+                    x = Dense(encoder_layer.output_shape[-1], activation="sigmoid", name=f"decoder_{idx}")(x)
             x = Dense(np.prod(self.input_shape), activation="sigmoid", name=f"decoder_{len(self.encoder_dims)}")(x)
 
         outputs = Reshape(self.input_shape, name="reconstructions")(x)
+        decoder_model = Model(decoder_inputs, outputs=outputs, name="decoder")
 
-        return Model(inputs, outputs=[classification, outputs], name="autoencoder")
+        # Build autoencoder
+        encoded_repr = encoder_model(encoder_inputs)
+        reconstructed_img = decoder_model(encoded_repr)
+        autoencoder_model = Model(encoder_inputs, outputs=[classification, reconstructed_img], name="autoencoder")
+        return encoder_model, decoder_model, autoencoder_model
 
     def generate_fake_samples(self, n_samples):
         # generate random points in the latent space
         x_latent = random((n_samples, self.latent_dim))
-        x_classification = randint(self.classification_dim, size=n_samples)
-        x_classification = to_categorical(x_classification, num_classes=self.classification_dim)
+        label = randint(self.classification_dim, size=n_samples)
+        x_classification = to_categorical(label, num_classes=self.classification_dim)
         x_input = concatenate((x_latent, x_classification), axis=1)
-        # predict outputs TODO: create generator!
-        x = self.generator.predict(x_input)
+        # predict outputs
+        x = self.decoder.predict(x_input)
         # create 'fake' class labels (0)
         y = zeros((n_samples, 1))
-        return x, y
+        return x, y, label
 
     def generate_real_samples(self, n_samples):
         # choose random instances
@@ -126,17 +136,29 @@ class EntropyPropagationNetwork:
         Path(path).mkdir(parents=True, exist_ok=True)
         plot_model(self.discriminator, f"{path}/discriminator_architecture.png", show_shapes=True, expand_nested=True)
         plot_model(self.autoencoder, f"{path}/autoencoder_architecture.png", show_shapes=True, expand_nested=True)
+        plot_model(self.encoder, f"{path}/encoder_architecture.png", show_shapes=True, expand_nested=True)
+        plot_model(self.decoder, f"{path}/decoder_architecture.png", show_shapes=True, expand_nested=True)
 
-    def show_reconstructions(self, images, n_images=10):
-        reconstructions = self.autoencoder.predict(images[:n_images])
-        fig = plt.figure(figsize=(n_images * 1.5, 3))
-        for image_index in range(n_images):
-            plt.subplot(3, n_images, 1 + image_index)
-            plot_image(np.reshape(images[image_index], (28, 28)))
-            plt.subplot(3, n_images, 1 + n_images + image_index)
+    def show_reconstructions(self, samples, n_samples=10):
+        reconstructions = self.autoencoder.predict(samples[:n_samples])
+        plt.figure(figsize=(n_samples * 1.5, 3))
+        for image_index in range(n_samples):
+            plt.subplot(3, n_samples, 1 + image_index)
+            plot_image(np.reshape(samples[image_index], (28, 28)))
+            plt.subplot(3, n_samples, 1 + n_samples + image_index)
             plot_image(np.reshape(reconstructions[1][image_index], (28, 28)))
-            x = plt.subplot(3, n_images, 1 + n_images + image_index)
+            x = plt.subplot(3, n_samples, 1 + n_samples + image_index)
             x.annotate(str(np.argmax(reconstructions[0][image_index])), xy=(0, image_index))
+        plt.show()
+
+    def show_fake_samples(self, n_samples=10):
+        samples = self.generate_fake_samples(n_samples)
+        plt.figure(figsize=(n_samples * 1.5, 3))
+        for image_index in range(n_samples):
+            plt.subplot(3, n_samples, 1 + n_samples + image_index)
+            plot_image(np.reshape(samples[0][image_index], (28, 28)))
+            x = plt.subplot(3, n_samples, 1 + n_samples + image_index)
+            x.annotate(str(samples[2][image_index]), xy=(0, image_index))
         plt.show()
 
 
