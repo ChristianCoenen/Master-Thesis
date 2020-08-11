@@ -7,6 +7,7 @@ from numpy.random import randint, random
 from numpy import concatenate, zeros, ones
 from src.custom_layers import DenseTranspose
 from src import datasets
+from pathlib import Path
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,13 +30,11 @@ class EntropyPropagationNetwork:
             (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_mnist()
 
         self.discriminator = self.build_discriminator()
-        plot_model(self.discriminator, "images/discriminator_architecture.png", show_shapes=True)
         self.discriminator.compile(loss='binary_crossentropy', optimizer=Adam(0.0002, 0.5), metrics=['accuracy'])
 
         self.autoencoder = self.build_autoencoder()
-        # TODO: not working at the moment, should be fixed with Tensorflow 2.4
+        # TODO: not working at the moment, should be fixed in Tensorflow 2.4
         # ssim_loss = tf.reduce_mean(tf.image.ssim_multiscale(self.autoencoder.input, self.autoencoder.output[-1], 1.0))
-        plot_model(self.autoencoder, "images/autoencoder_architecture.png", show_shapes=True)
         self.autoencoder.compile(loss=["mean_squared_error", "binary_crossentropy"], optimizer="adam",
                                  metrics=["accuracy"])
 
@@ -43,6 +42,9 @@ class EntropyPropagationNetwork:
         self.discriminator.trainable = False
 
         # Combined model
+        # TODO: combined model
+
+        self.plot_models()
 
     def build_discriminator(self):
         model = Sequential()
@@ -84,6 +86,7 @@ class EntropyPropagationNetwork:
         return Model(inputs, outputs=[classification, outputs], name="autoencoder")
 
     def generate_fake_samples(self, n_samples):
+        # generate random points in the latent space
         x_latent = random((n_samples, self.latent_dim))
         x_classification = randint(self.classification_dim, size=n_samples)
         x_classification = to_categorical(x_classification, num_classes=self.classification_dim)
@@ -108,6 +111,11 @@ class EntropyPropagationNetwork:
         self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm], epochs=5,
                              validation_data=(self.x_test_norm, (self.y_test, self.x_test_norm)))
 
+    def plot_models(self, path="images"):
+        Path(path).mkdir(parents=True, exist_ok=True)
+        plot_model(self.discriminator, f"{path}/discriminator_architecture.png", show_shapes=True, expand_nested=True)
+        plot_model(self.autoencoder, f"{path}/autoencoder_architecture.png", show_shapes=True, expand_nested=True)
+
     def show_reconstructions(self, images, n_images=10):
         reconstructions = self.autoencoder.predict(images[:n_images])
         fig = plt.figure(figsize=(n_images * 1.5, 3))
@@ -124,8 +132,3 @@ class EntropyPropagationNetwork:
 def plot_image(image):
     plt.imshow(image, cmap="binary")
     plt.axis("off")
-
-
-epn = EntropyPropagationNetwork()
-epn.train()
-epn.show_reconstructions(epn.x_train_norm)

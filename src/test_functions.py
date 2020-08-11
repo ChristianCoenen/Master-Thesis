@@ -1,5 +1,5 @@
 from numpy.testing import assert_array_equal
-
+import numpy as np
 
 def get_weights_no_bias(layer):
     # Get all weight matrices from a specific layer, ignore the bias arrays
@@ -31,3 +31,7 @@ def verify_shared_weights(encoder_layer, decoder_layer, classification_layer=Non
             assert_array_equal(decoder_weights[0], classification_weights[0])
     else:
         assert_array_equal(decoder_weights[0], encoder_weights[0])
+
+
+def get_num_trainable_parameters(autoencoder):
+    return np.sum([np.prod(v.shape) for v in autoencoder.trainable_variables])
