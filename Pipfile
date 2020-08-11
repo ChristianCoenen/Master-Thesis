@@ -6,9 +6,10 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-tensorflow = "*"
+tensorflow = "~=2.3"
 pydot = "*"
 matplotlib = "*"
+scikit-learn = "*"
 
 [requires]
 python_version = "3.8"
