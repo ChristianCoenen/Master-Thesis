@@ -7,6 +7,9 @@ from numpy.random import randint, random
 from numpy import concatenate, zeros, ones
 from src.custom_layers import DenseTranspose
 from src import datasets
+import tensorflow as tf
+import matplotlib.pyplot as plt
+import numpy as np
 import config
 
 
@@ -103,6 +106,24 @@ class EntropyPropagationNetwork:
         self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm], epochs=5,
                              validation_data=(self.x_test_norm, (self.y_test, self.x_test_norm)))
 
+    def show_reconstructions(self, images, n_images=10):
+        reconstructions = self.autoencoder.predict(images[:n_images])
+        fig = plt.figure(figsize=(n_images * 1.5, 3))
+        for image_index in range(n_images):
+            plt.subplot(3, n_images, 1 + image_index)
+            plot_image(np.reshape(images[image_index], (28, 28)))
+            plt.subplot(3, n_images, 1 + n_images + image_index)
+            plot_image(np.reshape(reconstructions[1][image_index], (28, 28)))
+            x = plt.subplot(3, n_images, 1 + n_images + image_index)
+            x.annotate(str(np.argmax(reconstructions[0][image_index])), xy=(0, image_index))
+        plt.show()
+
+
+def plot_image(image):
+    plt.imshow(image, cmap="binary")
+    plt.axis("off")
+
 
 epn = EntropyPropagationNetwork()
 epn.train()
+epn.show_reconstructions(epn.x_train_norm)
