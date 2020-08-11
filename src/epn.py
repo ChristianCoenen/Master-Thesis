@@ -11,6 +11,7 @@ from pathlib import Path
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
+import config
 
 
 class EntropyPropagationNetwork:
@@ -41,7 +42,7 @@ class EntropyPropagationNetwork:
         # Combined model
         # TODO: combined model
 
-        self.plot_models()
+        self.plot_models() if config.GRAPHVIZ else None
 
     def build_discriminator(self):
         model = Sequential()
