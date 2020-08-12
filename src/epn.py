@@ -8,7 +8,6 @@ from numpy import concatenate, zeros, ones
 from src.custom_layers import DenseTranspose
 from src import datasets
 from pathlib import Path
-import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
 import config
@@ -26,6 +25,8 @@ class EntropyPropagationNetwork:
             (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_mnist()
         elif dataset == 'fashion_mnist':
             (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_mnist(fashion=True)
+        else:
+            raise ValueError("Unknown dataset!")
 
         self.input_shape = self.x_train_norm.shape[1:]
 
@@ -128,8 +129,11 @@ class EntropyPropagationNetwork:
 
     def train(self, epochs=5):
         self.autoencoder.summary()
-        self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm], epochs=epochs,
-                             validation_data=(self.x_test_norm, (self.y_test, self.x_test_norm)))
+        self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm], epochs=epochs, validation_split=0.1)
+
+    def evaluate(self):
+        # Evaluates the autoencoder based on the test data
+        return self.autoencoder.evaluate(self.x_test_norm, [self.y_test, self.x_test_norm], verbose=0)
 
     def plot_models(self, path="images"):
         Path(path).mkdir(parents=True, exist_ok=True)
