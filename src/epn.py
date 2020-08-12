@@ -127,9 +127,9 @@ class EntropyPropagationNetwork:
         y = ones((n_samples, 1))
         return x, y
 
-    def train(self):
+    def train(self, epochs=5):
         self.autoencoder.summary()
-        self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm], epochs=5,
+        self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm], epochs=epochs,
                              validation_data=(self.x_test_norm, (self.y_test, self.x_test_norm)))
 
     def plot_models(self, path="images"):
