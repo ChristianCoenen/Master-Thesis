@@ -33,8 +33,7 @@ class EntropyPropagationNetwork:
         self.discriminator.compile(loss='binary_crossentropy', optimizer=Adam(0.0002, 0.5), metrics=['accuracy'])
 
         self.encoder, self.decoder, self.autoencoder = self.build_autoencoder()
-        # TODO: ssim_loss not working at the moment, should be fixed in Tensorflow 2.4
-        # ssim_loss = tf.reduce_mean(tf.image.ssim_multiscale(self.autoencoder.input, self.autoencoder.output[-1], 1.0))
+
         self.autoencoder.compile(loss=["mean_squared_error", "binary_crossentropy"], optimizer="adam",
                                  metrics=["accuracy"])
 
