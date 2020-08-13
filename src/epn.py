@@ -1,6 +1,6 @@
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras import layers
-from tensorflow.keras.layers import Input, Dense, LeakyReLU, Flatten, Reshape, concatenate
+from tensorflow.keras.layers import Input, Dense, LeakyReLU, Flatten, Reshape, concatenate, Dropout
 from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.utils import to_categorical, plot_model
 from numpy.random import randint, random
@@ -65,11 +65,10 @@ class EntropyPropagationNetwork:
         self.autoencoder.compile(loss=["mean_squared_error", "binary_crossentropy"], optimizer="adam",
                                  metrics=["accuracy"])
 
-        # For the combined model we will only train the generator
+        # GAN model (decoder & discriminator) - For the GAN model we will only train the generator
         self.discriminator.trainable = False
-
-        # Combined model
-        # TODO: combined model
+        self.gan = self.build_gan()
+        self.gan.compile(loss='binary_crossentropy', optimizer=Adam(lr=0.0002, beta_1=0.5))
 
         # only set config.GRAPHVIZ to true if you have it installed (see README)
         self.plot_models() if config.GRAPHVIZ else None
@@ -83,17 +82,16 @@ class EntropyPropagationNetwork:
 
         :return: Discriminator model
         """
-        model = Sequential()
-        model.add(Dense(512, input_dim=self.latent_dim))
-        model.add(LeakyReLU(alpha=0.2))
-        model.add(Dense(256))
-        model.add(LeakyReLU(alpha=0.2))
+        model = Sequential(name="discriminator")
+        model.add(Flatten())
+        model.add(Dense(1024, input_dim=np.prod(self.input_shape), activation=LeakyReLU(alpha=0.2)))
+        model.add(Dropout(0.3))
+        model.add(Dense(512, activation=LeakyReLU(alpha=0.2)))
+        model.add(Dropout(0.3))
+        model.add(Dense(256, activation=LeakyReLU(alpha=0.2)))
+        model.add(Dropout(0.3))
         model.add(Dense(1, activation="sigmoid"))
-        model.summary()
-
-        encoded_repr = Input(shape=(self.latent_dim,))
-        validity = model(encoded_repr)
-        return Model(encoded_repr, validity)
+        return model
 
     def build_autoencoder(self):
         """ Creates an encoder, decoder and autoencoder model.
@@ -103,10 +101,10 @@ class EntropyPropagationNetwork:
         # Define shared layers
         encoder_layers = []
         for idx, encoder_layer in enumerate(self.encoder_dims):
-            encoder_layers.append(Dense(self.encoder_dims[idx], activation="sigmoid", name=f'encoder_{idx}'))
+            encoder_layers.append(Dense(self.encoder_dims[idx], activation=LeakyReLU(alpha=0.2), name=f'encoder_{idx}'))
         encoder_to_classification = Dense(self.classification_dim, activation="softmax",
                                           name=f'encoder_{len(self.encoder_dims) }_classification')
-        encoder_to_latent_space = Dense(self.latent_dim, activation="sigmoid",
+        encoder_to_latent_space = Dense(self.latent_dim, activation=LeakyReLU(alpha=0.2),
                                         name=f'encoder_{len(self.encoder_dims)}_latent_space')
 
         # Build encoder model
@@ -125,9 +123,12 @@ class EntropyPropagationNetwork:
         decoder_inputs = Input(shape=self.latent_dim + self.classification_dim, name="decoder_input")
         if self.weight_sharing:
             x = DenseTranspose(encoder_to_latent_space, encoder_to_classification,
-                               activation="sigmoid", name="decoder_0")(decoder_inputs)
+                               activation=LeakyReLU(alpha=0.2), name="decoder_0")(decoder_inputs)
             for idx, encoder_layer in enumerate(reversed(encoder_layers)):
-                x = DenseTranspose(encoder_layer, activation="sigmoid", name=f"decoder_{1 + idx}")(x)
+                if idx == len(encoder_layers) - 1:
+                    x = DenseTranspose(encoder_layer, activation="sigmoid", name=f"decoder_{1 + idx}")(x)
+                else:
+                    x = DenseTranspose(encoder_layer, activation=LeakyReLU(alpha=0.2), name=f"decoder_{1 + idx}")(x)
         else:
             for idx, encoder_layer in enumerate(reversed(encoder_layers)):
                 if idx == 0:
@@ -146,6 +147,26 @@ class EntropyPropagationNetwork:
         autoencoder_model = Model(encoder_inputs, outputs=[classification, reconstructed_img], name="autoencoder")
         return encoder_model, decoder_model, autoencoder_model
 
+    # define the combined generator and discriminator model, for updating the generator
+    def build_gan(self):
+        """ Defines the combined decoder and discriminator model, for updating the decoder
+
+        :return:
+        """
+        # connect them
+        gan_model = Sequential()
+        gan_model.add(self.decoder)
+        gan_model.add(self.discriminator)
+        return gan_model
+
+    def generate_latent_and_classification_points(self, n_samples):
+        # generate random points in the latent space
+        x_latent = np.random.normal(0, 1, size=(n_samples, self.latent_dim))
+        label = randint(self.classification_dim, size=n_samples)
+        x_classification = to_categorical(label, num_classes=self.classification_dim)
+        x_input = concatenate((x_latent, x_classification), axis=1)
+        return x_input, label
+
     def generate_fake_samples(self, n_samples):
         """ Generates fake samples for
 
@@ -158,10 +179,7 @@ class EntropyPropagationNetwork:
                Helps debugging whether the generated samples match the classification input (e.g. generate a 6)
         """
         # generate random points in the latent space
-        x_latent = random((n_samples, self.latent_dim))
-        label = randint(self.classification_dim, size=n_samples)
-        x_classification = to_categorical(label, num_classes=self.classification_dim)
-        x_input = concatenate((x_latent, x_classification), axis=1)
+        x_input, label = self.generate_latent_and_classification_points(n_samples)
         # predict outputs
         x = self.decoder.predict(x_input)
         # create 'fake' class labels (0)
@@ -185,10 +203,94 @@ class EntropyPropagationNetwork:
         y = ones((n_samples, 1))
         return x, y
 
-    def train(self, epochs=5):
-        # TODO: add training via GAN somehow
-        self.autoencoder.summary()
+    def train_autoencoder(self, epochs=5):
         self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm], epochs=epochs, validation_split=0.1)
+
+    def train(self, epochs=5,  batch_size=1024, pre_train_epochs=3):
+        # TODO: add training via GAN somehow
+        batch_per_epoch = int(60000 / batch_size)
+        half_batch = int(batch_size / 2)
+        self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm],
+                             epochs=pre_train_epochs, validation_split=0.1)
+        # manually enumerate epochs
+        for i in range(epochs):
+            # enumerate batches over the training set
+            for j in range(batch_per_epoch):
+                ''' Discriminator training '''
+                # create training set for the discriminator
+                x_real, y_real = self.generate_real_samples(n_samples=half_batch)
+                x_fake, y_fake, labels = self.generate_fake_samples(n_samples=half_batch)
+                x_discriminator, y_discriminator = np.vstack((x_real, x_fake)), np.vstack((y_real, y_fake))
+                # One-sided label smoothing
+                y_discriminator[:half_batch] = 0.9
+                # update discriminator model weights
+                d_loss, _ = self.discriminator.train_on_batch(x_discriminator, y_discriminator)
+
+                ''' Generator training (discriminator weights deactivated!) '''
+                # prepare points in latent space as input for the generator
+                x_gan, _ = self.generate_latent_and_classification_points(batch_size)
+                # create inverted labels for the fake samples (because generator goal is to trick the discriminator)
+                # so our objective (label) is 1 and if discriminator says 1 we have an error of 0 and vice versa
+                y_gan = ones((batch_size, 1))
+                # update the generator via the discriminator's error
+                g_loss = self.gan.train_on_batch(x_gan, y_gan)
+
+                ''' ... '''
+                # summarize loss on this batch
+                print('>%d, %d/%d, d=%.3f, g=%.3f' % (i + 1, j + 1, batch_per_epoch, d_loss, g_loss))
+
+            # TODO:
+            '''
+            I guess it makes sense that the generated images are also used as inputs for the encoder to see
+            if they are good enough so that the classifier can classify them correctly. This should be another layer
+            of quality assurance to improve the generator even further
+            '''
+            # evaluate the model performance each epoch
+            self.summarize_performance(i)
+
+    def save_plot(self, examples, epoch, n_samples=10, path="plots"):
+        """ Create and save a plot of generated images (reversed grayscale)
+
+        :param examples:
+        :param epoch:
+        :param n_samples:
+        :return:
+        """
+        for i in range(n_samples * n_samples):
+            # define subplot
+            plt.subplot(n_samples, n_samples, 1 + i)
+            # turn off axis
+            plt.axis('off')
+            # plot raw pixel data
+            plt.imshow(examples[i, :, :, 0], cmap='gray_r')
+        # save plot to file
+        Path(path).mkdir(parents=True, exist_ok=True)
+        filename = 'plots/generated_plot_e%03d.png' % (epoch + 1)
+        plt.savefig(filename)
+        plt.close()
+
+    def summarize_performance(self, epoch, n_samples=100):
+        """ Evaluate the discriminator, plot generated images, save generator model
+
+        :param epoch: int
+            Current training epoch.
+        :param n_samples: int
+            Number of samples that are plotted.
+        :return:
+            None
+        """
+        # prepare real samples
+        X_real, y_real = self.generate_real_samples(n_samples)
+        # evaluate discriminator on real examples
+        _, acc_real = self.discriminator.evaluate(X_real, y_real, verbose=0)
+        # prepare fake examples
+        x_fake, y_fake, labels = self.generate_fake_samples(n_samples)
+        # evaluate discriminator on fake examples
+        _, acc_fake = self.discriminator.evaluate(x_fake, y_fake, verbose=0)
+        # summarize discriminator performance
+        print('>Accuracy real: %.0f%%, fake: %.0f%%' % (acc_real * 100, acc_fake * 100))
+        # save plot
+        self.save_plot(x_fake, epoch)
 
     def evaluate(self):
         # Evaluates the autoencoder based on the test data
@@ -207,6 +309,7 @@ class EntropyPropagationNetwork:
         plot_model(self.autoencoder, f"{path}/autoencoder_architecture.png", show_shapes=True, expand_nested=True)
         plot_model(self.encoder, f"{path}/encoder_architecture.png", show_shapes=True, expand_nested=True)
         plot_model(self.decoder, f"{path}/decoder_architecture.png", show_shapes=True, expand_nested=True)
+        plot_model(self.gan, f"{path}/gan_architecture.png", show_shapes=True, expand_nested=True)
 
     def show_reconstructions(self, samples):
         """ Pushes x samples through the autoencoder to generate & visualize reconstructions
