@@ -14,13 +14,40 @@ import config
 
 
 class EntropyPropagationNetwork:
+    """
+    A class implementing the Entropy Propagation Network architecture consisting of:
+
+    1. Encoder and Decoder Model (Decoder will mirror the encoder layers) (and weights if weight sharing is activated)
+    2. Autoencoder model which is constructed by combining the Encoder model with the Decoder model
+    3. Discriminator model
+    4. GAN model which is constructed by combining the Decoder with the Discriminator model
+
+    Note that the Decoder can also be referenced as Generator when generating fake samples
+    """
+
     def __init__(self, dataset='mnist', weight_sharing=True, encoder_dims=None, latent_dim=40, classification_dim=10):
+        """
+        :param dataset: str
+            Selects the underlying dataset.
+            Valid values: ['mnist', 'fashion_mnist']
+        :param weight_sharing: bool
+            If set to true, the decoder will used the weights created on the encoder side using DenseTranspose layers
+        :param encoder_dims: [int]
+            Each value (x) represents one layer with x neurons.
+        :param latent_dim:
+            Number of latent space neurons (bottleneck layer in the Autoencoder)
+        :param classification_dim:
+            Output neurons to classify the inputs based on their label
+            Needs to be of same dim as the number of output labels.
+            Is not automatically generated based on dataset, because it might be variable for Reinforcement Learning
+        """
+
+        self.weight_sharing = weight_sharing
         # default None because of side effects with mutable default values
         self.encoder_dims = [100] if encoder_dims is None else encoder_dims
         self.latent_dim = latent_dim
         self.classification_dim = classification_dim
 
-        self.weight_sharing = weight_sharing
         if dataset == 'mnist':
             (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_mnist()
         elif dataset == 'fashion_mnist':
@@ -44,9 +71,18 @@ class EntropyPropagationNetwork:
         # Combined model
         # TODO: combined model
 
+        # only set config.GRAPHVIZ to true if you have it installed (see README)
         self.plot_models() if config.GRAPHVIZ else None
 
     def build_discriminator(self):
+        """ Creates a discriminator model.
+
+        Leaky ReLU is recommended for Discriminator networks.
+        'Within the discriminator we found the leaky rectified activation to work well ...'
+            — Unsupervised Representation Learning with Deep Convolutional Generative Adversarial Networks, 2015.
+
+        :return: Discriminator model
+        """
         model = Sequential()
         model.add(Dense(512, input_dim=self.latent_dim))
         model.add(LeakyReLU(alpha=0.2))
@@ -60,6 +96,10 @@ class EntropyPropagationNetwork:
         return Model(encoded_repr, validity)
 
     def build_autoencoder(self):
+        """ Creates an encoder, decoder and autoencoder model.
+
+        :return: Encoder model, Decoder mode, Autoencoder model
+        """
         # Define shared layers
         encoder_layers = []
         for idx, encoder_layer in enumerate(self.encoder_dims):
@@ -107,6 +147,16 @@ class EntropyPropagationNetwork:
         return encoder_model, decoder_model, autoencoder_model
 
     def generate_fake_samples(self, n_samples):
+        """ Generates fake samples for
+
+        :param n_samples: int
+            Number of samples that needs to be generated.
+        :return:
+            x: Random samples generator by the decoder (generator)
+            y: Array with length of n_samples containing zeros (to indicate that those are fake samples)
+            z: Array with length of n_samples showing the objective for the decoder for each samples
+               Helps debugging whether the generated samples match the classification input (e.g. generate a 6)
+        """
         # generate random points in the latent space
         x_latent = random((n_samples, self.latent_dim))
         label = randint(self.classification_dim, size=n_samples)
@@ -119,6 +169,14 @@ class EntropyPropagationNetwork:
         return x, y, label
 
     def generate_real_samples(self, n_samples):
+        """ This method samples from the training data set to show real samples to the discriminator.
+
+        :param n_samples: int
+            Number of samples that needs to be extracted.
+        :return:
+            x: Random samples generator by the decoder (generator)
+            y: Array with length of n_samples containing zeros (to indicate that those are fake samples)
+        """
         # choose random instances
         ix = randint(0, self.x_train_norm.shape[0], n_samples)
         # retrieve selected images
@@ -128,6 +186,7 @@ class EntropyPropagationNetwork:
         return x, y
 
     def train(self, epochs=5):
+        # TODO: add training via GAN somehow
         self.autoencoder.summary()
         self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm], epochs=epochs, validation_split=0.1)
 
@@ -136,14 +195,29 @@ class EntropyPropagationNetwork:
         return self.autoencoder.evaluate(self.x_test_norm, [self.y_test, self.x_test_norm], verbose=0)
 
     def plot_models(self, path="images"):
+        """ Saves all EPN model architectures as PNGs into a defined sub folder.
+
+        :param path: str
+            Relative path from the root directory
+        :return:
+            None
+        """
         Path(path).mkdir(parents=True, exist_ok=True)
         plot_model(self.discriminator, f"{path}/discriminator_architecture.png", show_shapes=True, expand_nested=True)
         plot_model(self.autoencoder, f"{path}/autoencoder_architecture.png", show_shapes=True, expand_nested=True)
         plot_model(self.encoder, f"{path}/encoder_architecture.png", show_shapes=True, expand_nested=True)
         plot_model(self.decoder, f"{path}/decoder_architecture.png", show_shapes=True, expand_nested=True)
 
-    def show_reconstructions(self, samples, n_samples=10):
-        reconstructions = self.autoencoder.predict(samples[:n_samples])
+    def show_reconstructions(self, samples):
+        """ Pushes x samples through the autoencoder to generate & visualize reconstructions
+
+        :param samples:
+            Samples that matches the following shape [n_samples, autoencoder input shape]
+        :return:
+            None
+        """
+        n_samples = samples.shape[0]
+        reconstructions = self.autoencoder.predict(samples)
         plt.figure(figsize=(n_samples * 1.5, 3))
         for image_index in range(n_samples):
             plt.subplot(3, n_samples, 1 + image_index)
@@ -155,6 +229,15 @@ class EntropyPropagationNetwork:
         plt.show()
 
     def show_fake_samples(self, n_samples=10):
+        """ Generates x fake samples and shows them as a plot.
+
+            Useful to show if the generator is able to generate real looking images from random points.
+
+        :param n_samples: int
+            Number of samples that should be generated and plotted.
+        :return:
+            None
+        """
         samples = self.generate_fake_samples(n_samples)
         plt.figure(figsize=(n_samples * 1.5, 3))
         for image_index in range(n_samples):
