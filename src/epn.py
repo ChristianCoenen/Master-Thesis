@@ -3,7 +3,7 @@ from tensorflow.keras import layers
 from tensorflow.keras.layers import Input, Dense, LeakyReLU, Flatten, Reshape, concatenate, Dropout
 from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.utils import to_categorical, plot_model
-from numpy.random import randint, random
+from numpy.random import randint
 from numpy import concatenate, zeros, ones
 from src.custom_layers import DenseTranspose
 from src import datasets
@@ -85,11 +85,8 @@ class EntropyPropagationNetwork:
         model = Sequential(name="discriminator")
         model.add(Flatten())
         model.add(Dense(1024, input_dim=np.prod(self.input_shape), activation=LeakyReLU(alpha=0.2)))
-        model.add(Dropout(0.3))
         model.add(Dense(512, activation=LeakyReLU(alpha=0.2)))
-        model.add(Dropout(0.3))
         model.add(Dense(256, activation=LeakyReLU(alpha=0.2)))
-        model.add(Dropout(0.3))
         model.add(Dense(1, activation="sigmoid"))
         return model
 
