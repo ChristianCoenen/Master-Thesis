@@ -265,7 +265,7 @@ class EntropyPropagationNetwork:
             None
         """
         # prepare real samples
-        x_real, y_real = self.generate_real_samples(n_samples)
+        x_real, y_real, _ = self.generate_real_samples(n_samples)
         # evaluate discriminator on real examples
         _, acc_real = self.discriminator.evaluate(x_real, y_real, verbose=0)
         # prepare fake examples
