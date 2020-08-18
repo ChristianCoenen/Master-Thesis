@@ -214,7 +214,8 @@ class EntropyPropagationNetwork:
         batch_per_epoch = int(60000 / batch_size)
         half_batch = int(batch_size / 2)
 
-        self.train_autoencoder(pre_train_epochs)
+        if pre_train_epochs:
+            self.train_autoencoder(pre_train_epochs)
 
         # manually enumerate epochs
         for i in range(epochs):
