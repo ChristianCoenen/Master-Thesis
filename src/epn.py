@@ -72,7 +72,7 @@ class EntropyPropagationNetwork:
         self.gan.compile(loss='binary_crossentropy', optimizer=Adam(lr=0.0002, beta_1=0.5))
 
         # only set config.GRAPHVIZ to true if you have it installed (see README)
-        self.plot_model_architectures() if config.GRAPHVIZ else None
+        self.save_model_architecture_images() if config.GRAPHVIZ else None
 
     def build_discriminator(self):
         """ Creates a discriminator model.
@@ -206,8 +206,8 @@ class EntropyPropagationNetwork:
 
     def train_autoencoder(self, epochs=5):
         self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm], epochs=epochs, validation_split=0.1)
-        self.show_reconstructions(self.x_train_norm[10:20])
-        self.show_fake_samples()
+        self.save_reconstruction_plot_images(self.x_train_norm[10:20])
+        self.save_fake_sample_plot_images()
 
     def train(self, epochs=5,  batch_size=1024, pre_train_epochs=3):
         batch_per_epoch = int(60000 / batch_size)
@@ -273,13 +273,13 @@ class EntropyPropagationNetwork:
         # summarize discriminator performance
         print(f'>Accuracy real: {acc_real * 100:0f}%%, fake: {acc_fake * 100:0f}%%')
         # save plot
-        self.show_fake_samples(x_fake=x_fake, labels=labels, epoch=epoch)
+        self.save_fake_sample_plot_images(x_fake=x_fake, labels=labels, epoch=epoch)
 
     def evaluate(self):
         # Evaluates the autoencoder based on the test data
         return self.autoencoder.evaluate(self.x_test_norm, [self.y_test, self.x_test_norm], verbose=0)
 
-    def plot_model_architectures(self, path="images/architecture"):
+    def save_model_architecture_images(self, path="images/architecture"):
         """ Saves all EPN model architectures as PNGs into a defined sub folder.
 
         :param path: str
@@ -294,7 +294,7 @@ class EntropyPropagationNetwork:
         plot_model(self.decoder, f"{path}/decoder_architecture.png", show_shapes=True, expand_nested=True)
         plot_model(self.gan, f"{path}/gan_architecture.png", show_shapes=True, expand_nested=True)
 
-    def show_reconstructions(self, samples, path="images/plots"):
+    def save_reconstruction_plot_images(self, samples, path="images/plots"):
         """ Pushes x samples through the autoencoder to generate & visualize reconstructions
 
         :param samples:
@@ -316,9 +316,9 @@ class EntropyPropagationNetwork:
             # label
             plot_obj.annotate(str(np.argmax(reconstructions[0][image_index])), xy=(0, 0))
 
-        save_plot(path=path, filename='reconstructed_plot.png')
+        save_plot_as_image(path=path, filename='reconstructed_plot.png')
 
-    def show_fake_samples(self, x_fake=None, labels=None, epoch=-1, n_samples=100, path="images/plots"):
+    def save_fake_sample_plot_images(self, x_fake=None, labels=None, epoch=-1, n_samples=100, path="images/plots"):
         """ Create and save a plot of generated images (reversed grayscale)
 
             Useful to show if the generator is able to generate real looking images from random points.
@@ -342,7 +342,7 @@ class EntropyPropagationNetwork:
             plot_obj = add_subplot(image=x_fake[i, :, :, 0], n_cols=n_columns, n_rows=n_rows, index=1 + i)
             plot_obj.annotate(str(labels[i]), xy=(0, 0))
 
-        save_plot(path=path, filename=f'generated_plot_e{epoch + 1:03d}.png')
+        save_plot_as_image(path=path, filename=f'generated_plot_e{epoch + 1:03d}.png')
 
 
 def add_subplot(image, n_cols, n_rows, index):
@@ -352,7 +352,7 @@ def add_subplot(image, n_cols, n_rows, index):
     return plot_obj
 
 
-def save_plot(path, filename):
+def save_plot_as_image(path, filename):
     Path(path).mkdir(parents=True, exist_ok=True)
     full_path = f'{path}/{filename}'
     plt.savefig(full_path)
