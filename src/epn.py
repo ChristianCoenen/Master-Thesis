@@ -163,10 +163,10 @@ class EntropyPropagationNetwork:
     def generate_latent_and_classification_points(self, n_samples):
         # generate random points in the latent space
         x_latent = np.random.normal(0, 1, size=(n_samples, self.latent_dim))
-        label = randint(self.classification_dim, size=n_samples)
-        x_classification = to_categorical(label, num_classes=self.classification_dim)
-        x_input = concatenate((x_latent, x_classification), axis=1)
-        return x_input, label
+        labels = randint(self.classification_dim, size=n_samples)
+        labels = to_categorical(labels, num_classes=self.classification_dim)
+        x_input = concatenate((x_latent, labels), axis=1)
+        return x_input, labels
 
     def generate_fake_samples(self, n_samples):
         """ Generates fake samples for
@@ -180,12 +180,12 @@ class EntropyPropagationNetwork:
                Helps debugging whether the generated samples match the classification input (e.g. generate a 6)
         """
         # generate random points in the latent space
-        x_input, label = self.generate_latent_and_classification_points(n_samples)
+        x_inputs, labels = self.generate_latent_and_classification_points(n_samples)
         # predict outputs
-        x = self.decoder.predict(x_input)
+        x = self.decoder.predict(x_inputs)
         # create 'fake' class labels (0)
         y = zeros((n_samples, 1))
-        return x, y, label
+        return x, y, labels
 
     def generate_real_samples(self, n_samples):
         """ This method samples from the training data set to show real samples to the discriminator.
@@ -202,7 +202,8 @@ class EntropyPropagationNetwork:
         x = self.x_train_norm[ix]
         # generate 'real' class labels (1)
         y = ones((n_samples, 1))
-        return x, y
+        labels = self.y_train[ix]
+        return x, y, labels
 
     def train_autoencoder(self, epochs=5):
         self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm], epochs=epochs, validation_split=0.1)
@@ -221,9 +222,10 @@ class EntropyPropagationNetwork:
             for j in range(batch_per_epoch):
                 ''' Discriminator training '''
                 # create training set for the discriminator
-                x_real, y_real = self.generate_real_samples(n_samples=half_batch)
-                x_fake, y_fake, labels = self.generate_fake_samples(n_samples=half_batch)
+                x_real, y_real, labels_real = self.generate_real_samples(n_samples=half_batch)
+                x_fake, y_fake, labels_fake = self.generate_fake_samples(n_samples=half_batch)
                 x_discriminator, y_discriminator = np.vstack((x_real, x_fake)), np.vstack((y_real, y_fake))
+                labels = np.vstack((labels_real, labels_fake))
                 # One-sided label smoothing
                 y_discriminator[:half_batch] = 0.9
                 # update discriminator model weights
@@ -246,8 +248,7 @@ class EntropyPropagationNetwork:
                 '''
 
                 # summarize loss on this batch
-                leading_digits = len(str(batch_per_epoch))
-                print(f'>{i + 1}, {j + 1:0{leading_digits}d}/{batch_per_epoch}, d={d_loss:.3f}, g={g_loss:.3f}')
+                print(f'>{i + 1}, {j + 1:0{len(str(batch_per_epoch))}d}/{batch_per_epoch}, d={d_loss:.3f}, g={g_loss:.3f}')
 
             # evaluate the model performance each epoch
             self.summarize_performance(i)
@@ -271,9 +272,9 @@ class EntropyPropagationNetwork:
         # evaluate discriminator on fake examples
         _, acc_fake = self.discriminator.evaluate(x_fake, y_fake, verbose=0)
         # summarize discriminator performance
-        print(f'>Accuracy real: {acc_real * 100:0f}%%, fake: {acc_fake * 100:0f}%%')
+        print(f'>Accuracy real: {acc_real * 100:.0f}%%, fake: {acc_fake * 100:.0f}%%')
         # save plot
-        self.save_fake_sample_plot_images(x_fake=x_fake, labels=labels, epoch=epoch)
+        self.save_fake_sample_plot_images(x_fake=x_fake, labels=tf.argmax(labels, axis=1).numpy(), epoch=epoch)
 
     def evaluate(self):
         # Evaluates the autoencoder based on the test data
