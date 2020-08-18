@@ -276,7 +276,7 @@ class EntropyPropagationNetwork:
         # summarize discriminator performance
         print(f'>Accuracy real: {acc_real * 100:.0f}%%, fake: {acc_fake * 100:.0f}%%')
         # save plot
-        self.save_fake_sample_plot_images(x_fake=x_fake, labels=tf.argmax(labels, axis=1).numpy(), epoch=epoch)
+        self.save_fake_sample_plot_images(x_fake=x_fake, labels=labels, epoch=epoch)
 
     def evaluate(self):
         # Evaluates the autoencoder based on the test data
@@ -340,10 +340,11 @@ class EntropyPropagationNetwork:
         if x_fake is None or labels is None:
             x_fake, _, labels = self.generate_fake_samples(n_samples)
 
+        labels_numerical = tf.argmax(labels, axis=1).numpy()
         plt.figure(figsize=(n_columns, n_rows))
         for i in range(n_samples):
             plot_obj = add_subplot(image=x_fake[i, :, :, 0], n_cols=n_columns, n_rows=n_rows, index=1 + i)
-            plot_obj.annotate(str(labels[i]), xy=(0, 0))
+            plot_obj.annotate(str(labels_numerical[i]), xy=(0, 0))
 
         save_plot_as_image(path=path, filename=f'generated_plot_e{epoch + 1:03d}.png')
 
