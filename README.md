@@ -36,9 +36,18 @@
 
 
 ## Graphviz
-If you have installed graphviz, you can comment in the following line to get an image of the model's architecture in your projects root folder:
+If you have installed Graphviz and would like to see architecture outputs,
+make sure to set the graphviz flag in the config.py in the root folder
 ```python
-keras.utils.plot_model(tied_ae_model, "model_architecture.png", show_shapes=True)
+GRAPHVIZ = True
+```
+
+## Troubleshooting
+### SSL Certificate issue
+Likely on MacOS. Can be fixed when running the following command to install 
+necessary certificates:
+```bash
+/Applications/Python 3.8/Install Certificates.command
 ```
         
         

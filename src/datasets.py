@@ -2,8 +2,11 @@ from tensorflow import keras
 import numpy as np
 
 
-def get_mnist():
-    (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
+def get_mnist(fashion=False):
+    if fashion:
+        (x_train, y_train), (x_test, y_test) = keras.datasets.fashion_mnist.load_data()
+    else:
+        (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
     # Normalize training data
     x_train_norm = x_train.astype("float32") / 255
     x_train_norm = np.reshape(x_train_norm, (60000, 28, 28, 1))
