@@ -86,8 +86,11 @@ class EntropyPropagationNetwork:
         model = Sequential(name="discriminator")
         model.add(Flatten())
         model.add(Dense(1024, input_dim=np.prod(self.input_shape), activation=LeakyReLU(alpha=0.2)))
+        model.add(Dropout(0.3))
         model.add(Dense(512, activation=LeakyReLU(alpha=0.2)))
+        model.add(Dropout(0.3))
         model.add(Dense(256, activation=LeakyReLU(alpha=0.2)))
+        model.add(Dropout(0.3))
         model.add(Dense(1, activation="sigmoid"))
         return model
 
