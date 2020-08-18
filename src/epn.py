@@ -8,6 +8,7 @@ from numpy import concatenate, zeros, ones
 from src.custom_layers import DenseTranspose
 from src import datasets
 from pathlib import Path
+import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
 import config
