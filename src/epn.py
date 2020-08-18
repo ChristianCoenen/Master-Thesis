@@ -232,16 +232,17 @@ class EntropyPropagationNetwork:
                 # update the generator via the discriminator's error
                 g_loss = self.gan.train_on_batch(x_gan, y_gan)
 
+                # TODO:
+                '''
+                I guess it makes sense that the generated images are also used as inputs for the encoder to see
+                if they are good enough so that the classifier can classify them correctly. This should be another layer
+                of quality assurance to improve the generator even further
+                '''
+
                 ''' ... '''
                 # summarize loss on this batch
                 print('>%d, %d/%d, d=%.3f, g=%.3f' % (i + 1, j + 1, batch_per_epoch, d_loss, g_loss))
 
-            # TODO:
-            '''
-            I guess it makes sense that the generated images are also used as inputs for the encoder to see
-            if they are good enough so that the classifier can classify them correctly. This should be another layer
-            of quality assurance to improve the generator even further
-            '''
             # evaluate the model performance each epoch
             self.summarize_performance(i)
 
@@ -251,6 +252,7 @@ class EntropyPropagationNetwork:
         :param examples:
         :param epoch:
         :param n_samples:
+        :param path:
         :return:
         """
         for i in range(n_samples * n_samples):
