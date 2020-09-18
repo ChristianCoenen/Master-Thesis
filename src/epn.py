@@ -77,6 +77,7 @@ class EntropyPropagationNetwork:
 
         # only set config.GRAPHVIZ to true if you have it installed (see README)
         self.save_model_architecture_images() if config.GRAPHVIZ else None
+        self.is_pretraining = True
 
     def build_discriminator(self):
         """ Creates a discriminator model.
@@ -215,12 +216,13 @@ class EntropyPropagationNetwork:
         self.save_reconstruction_plot_images(self.x_train_norm[10:20])
         self.save_fake_sample_plot_images()
 
-    def train(self, epochs=5,  batch_size=1024, pre_train_epochs=3):
+    def train(self, epochs=5,  batch_size=1024, pre_train_epochs=3, train_encoder=True):
         batch_per_epoch = int(60000 / batch_size)
         half_batch = int(batch_size / 2)
 
         if pre_train_epochs:
             self.train_autoencoder(pre_train_epochs)
+        self.is_pretraining = False
 
         # manually enumerate epochs
         for i in range(epochs):
@@ -246,12 +248,9 @@ class EntropyPropagationNetwork:
                 # update the generator via the discriminator's error
                 g_loss, _, _ = self.gan.train_on_batch(x_gan, [y_gan, labels])
 
-                # TODO:
-                '''
-                I guess it makes sense that the generated images are also used as inputs for the encoder to see
-                if they are good enough so that the classifier can classify them correctly. This should be another layer
-                of quality assurance to improve the generator even further
-                '''
+                ''' Autoencoder training '''
+                # this might result in the discriminator outperforming the generator depending on architecture
+                self.autoencoder.train_on_batch(x_real, [labels_real, x_real]) if train_encoder else None
 
                 # summarize loss on this batch
                 print(f'>{i + 1}, {j + 1:0{len(str(batch_per_epoch))}d}/{batch_per_epoch}, d={d_loss:.3f}, g={g_loss:.3f}')
@@ -324,7 +323,8 @@ class EntropyPropagationNetwork:
             # label
             plot_obj.annotate(str(np.argmax(reconstructions[0][image_index])), xy=(0, 0))
 
-        save_plot_as_image(path=path, filename='reconstructed_plot.png')
+        filename = 'pre_reconstructed_plot.png' if self.is_pretraining else 'post_reconstructed_plot.png'
+        save_plot_as_image(path=path, filename=filename)
 
     def save_fake_sample_plot_images(self, x_fake=None, labels=None, epoch=-1, n_samples=100, path="images/plots"):
         """ Create and save a plot of generated images (reversed grayscale)
