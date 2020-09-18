@@ -1,16 +1,18 @@
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras import layers
 from tensorflow.keras.layers import Input, Dense, LeakyReLU, Flatten, Reshape, concatenate, Dropout
-from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras.models import Model
 from tensorflow.keras.utils import to_categorical, plot_model
 from numpy.random import randint
 from numpy import concatenate, zeros, ones
 from src.custom_layers import DenseTranspose
 from src import datasets
 from pathlib import Path
+import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
 import config
+import math
 
 
 class EntropyPropagationNetwork:
@@ -52,13 +54,16 @@ class EntropyPropagationNetwork:
             (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_mnist()
         elif dataset == 'fashion_mnist':
             (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_mnist(fashion=True)
+        elif dataset == 'cifar10':
+            (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_cifar()
         else:
             raise ValueError("Unknown dataset!")
 
         self.input_shape = self.x_train_norm.shape[1:]
 
         self.discriminator = self.build_discriminator()
-        self.discriminator.compile(loss='binary_crossentropy', optimizer=Adam(0.0002, 0.5), metrics=['accuracy'])
+        self.discriminator.compile(loss=["binary_crossentropy", "mean_squared_error"],
+                                   optimizer=Adam(0.0002, 0.5), metrics=['accuracy'])
 
         self.encoder, self.decoder, self.autoencoder = self.build_autoencoder()
 
@@ -71,7 +76,8 @@ class EntropyPropagationNetwork:
         self.gan.compile(loss='binary_crossentropy', optimizer=Adam(lr=0.0002, beta_1=0.5))
 
         # only set config.GRAPHVIZ to true if you have it installed (see README)
-        self.plot_models() if config.GRAPHVIZ else None
+        self.save_model_architecture_images() if config.GRAPHVIZ else None
+        self.is_pretraining = True
 
     def build_discriminator(self):
         """ Creates a discriminator model.
@@ -82,13 +88,17 @@ class EntropyPropagationNetwork:
 
         :return: Discriminator model
         """
-        model = Sequential(name="discriminator")
-        model.add(Flatten())
-        model.add(Dense(1024, input_dim=np.prod(self.input_shape), activation=LeakyReLU(alpha=0.2)))
-        model.add(Dense(512, activation=LeakyReLU(alpha=0.2)))
-        model.add(Dense(256, activation=LeakyReLU(alpha=0.2)))
-        model.add(Dense(1, activation="sigmoid"))
-        return model
+        inputs = Input(shape=self.input_shape, name="discriminator_inputs")
+        x = Flatten()(inputs)
+        x = Dense(1024, activation=LeakyReLU(alpha=0.2))(x)
+        x = Dropout(0.3)(x)
+        x = Dense(512, activation=LeakyReLU(alpha=0.2))(x)
+        x = Dropout(0.3)(x)
+        x = Dense(256, activation=LeakyReLU(alpha=0.2))(x)
+        x = Dropout(0.3)(x)
+        real_or_fake = Dense(1, activation="sigmoid", name="real_or_fake")(x)
+        classification = Dense(self.classification_dim, activation="softmax", name="classification")(x)
+        return Model(inputs, outputs=[real_or_fake, classification], name="discriminator")
 
     def build_autoencoder(self):
         """ Creates an encoder, decoder and autoencoder model.
@@ -151,18 +161,18 @@ class EntropyPropagationNetwork:
         :return:
         """
         # connect them
-        gan_model = Sequential()
-        gan_model.add(self.decoder)
-        gan_model.add(self.discriminator)
-        return gan_model
+        inputs = Input(shape=self.latent_dim + self.classification_dim, name="gan_inputs")
+        decoded = self.decoder(inputs)
+        discriminated = self.discriminator(decoded)
+        return Model(inputs, discriminated)
 
     def generate_latent_and_classification_points(self, n_samples):
         # generate random points in the latent space
         x_latent = np.random.normal(0, 1, size=(n_samples, self.latent_dim))
-        label = randint(self.classification_dim, size=n_samples)
-        x_classification = to_categorical(label, num_classes=self.classification_dim)
-        x_input = concatenate((x_latent, x_classification), axis=1)
-        return x_input, label
+        labels = randint(self.classification_dim, size=n_samples)
+        labels = to_categorical(labels, num_classes=self.classification_dim)
+        x_input = concatenate((x_latent, labels), axis=1)
+        return x_input, labels
 
     def generate_fake_samples(self, n_samples):
         """ Generates fake samples for
@@ -176,12 +186,12 @@ class EntropyPropagationNetwork:
                Helps debugging whether the generated samples match the classification input (e.g. generate a 6)
         """
         # generate random points in the latent space
-        x_input, label = self.generate_latent_and_classification_points(n_samples)
+        x_inputs, labels = self.generate_latent_and_classification_points(n_samples)
         # predict outputs
-        x = self.decoder.predict(x_input)
+        x = self.decoder.predict(x_inputs)
         # create 'fake' class labels (0)
         y = zeros((n_samples, 1))
-        return x, y, label
+        return x, y, labels
 
     def generate_real_samples(self, n_samples):
         """ This method samples from the training data set to show real samples to the discriminator.
@@ -198,73 +208,56 @@ class EntropyPropagationNetwork:
         x = self.x_train_norm[ix]
         # generate 'real' class labels (1)
         y = ones((n_samples, 1))
-        return x, y
+        labels = self.y_train[ix]
+        return x, y, labels
 
     def train_autoencoder(self, epochs=5):
         self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm], epochs=epochs, validation_split=0.1)
+        self.save_reconstruction_plot_images(self.x_train_norm[10:20])
+        self.save_fake_sample_plot_images()
 
-    def train(self, epochs=5,  batch_size=1024, pre_train_epochs=3):
-        # TODO: add training via GAN somehow
+    def train(self, epochs=5,  batch_size=1024, pre_train_epochs=3, train_encoder=True):
         batch_per_epoch = int(60000 / batch_size)
         half_batch = int(batch_size / 2)
-        self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm],
-                             epochs=pre_train_epochs, validation_split=0.1)
+
+        if pre_train_epochs:
+            self.train_autoencoder(pre_train_epochs)
+        self.is_pretraining = False
+
         # manually enumerate epochs
         for i in range(epochs):
             # enumerate batches over the training set
             for j in range(batch_per_epoch):
                 ''' Discriminator training '''
                 # create training set for the discriminator
-                x_real, y_real = self.generate_real_samples(n_samples=half_batch)
-                x_fake, y_fake, labels = self.generate_fake_samples(n_samples=half_batch)
+                x_real, y_real, labels_real = self.generate_real_samples(n_samples=half_batch)
+                x_fake, y_fake, labels_fake = self.generate_fake_samples(n_samples=half_batch)
                 x_discriminator, y_discriminator = np.vstack((x_real, x_fake)), np.vstack((y_real, y_fake))
+                labels = np.vstack((labels_real, labels_fake))
                 # One-sided label smoothing
                 y_discriminator[:half_batch] = 0.9
                 # update discriminator model weights
-                d_loss, _ = self.discriminator.train_on_batch(x_discriminator, y_discriminator)
+                d_loss, _, _, _, _ = self.discriminator.train_on_batch(x_discriminator, [y_discriminator, labels])
 
                 ''' Generator training (discriminator weights deactivated!) '''
                 # prepare points in latent space as input for the generator
-                x_gan, _ = self.generate_latent_and_classification_points(batch_size)
+                x_gan, labels = self.generate_latent_and_classification_points(batch_size)
                 # create inverted labels for the fake samples (because generator goal is to trick the discriminator)
                 # so our objective (label) is 1 and if discriminator says 1 we have an error of 0 and vice versa
                 y_gan = ones((batch_size, 1))
                 # update the generator via the discriminator's error
-                g_loss = self.gan.train_on_batch(x_gan, y_gan)
+                g_loss, _, _ = self.gan.train_on_batch(x_gan, [y_gan, labels])
 
-                ''' ... '''
+                ''' Autoencoder training '''
+                # this might result in the discriminator outperforming the generator depending on architecture
+                self.autoencoder.train_on_batch(x_real, [labels_real, x_real]) if train_encoder else None
+
                 # summarize loss on this batch
-                print('>%d, %d/%d, d=%.3f, g=%.3f' % (i + 1, j + 1, batch_per_epoch, d_loss, g_loss))
+                print(f'>{i + 1}, {j + 1:0{len(str(batch_per_epoch))}d}/{batch_per_epoch}, d={d_loss:.3f}, g={g_loss:.3f}')
 
-            # TODO:
-            '''
-            I guess it makes sense that the generated images are also used as inputs for the encoder to see
-            if they are good enough so that the classifier can classify them correctly. This should be another layer
-            of quality assurance to improve the generator even further
-            '''
             # evaluate the model performance each epoch
             self.summarize_performance(i)
-
-    def save_plot(self, examples, epoch, n_samples=10, path="plots"):
-        """ Create and save a plot of generated images (reversed grayscale)
-
-        :param examples:
-        :param epoch:
-        :param n_samples:
-        :return:
-        """
-        for i in range(n_samples * n_samples):
-            # define subplot
-            plt.subplot(n_samples, n_samples, 1 + i)
-            # turn off axis
-            plt.axis('off')
-            # plot raw pixel data
-            plt.imshow(examples[i, :, :, 0], cmap='gray_r')
-        # save plot to file
-        Path(path).mkdir(parents=True, exist_ok=True)
-        filename = 'plots/generated_plot_e%03d.png' % (epoch + 1)
-        plt.savefig(filename)
-        plt.close()
+        self.save_reconstruction_plot_images(self.x_train_norm[10:20])
 
     def summarize_performance(self, epoch, n_samples=100):
         """ Evaluate the discriminator, plot generated images, save generator model
@@ -277,23 +270,23 @@ class EntropyPropagationNetwork:
             None
         """
         # prepare real samples
-        X_real, y_real = self.generate_real_samples(n_samples)
+        x_real, y_real, _ = self.generate_real_samples(n_samples)
         # evaluate discriminator on real examples
-        _, acc_real = self.discriminator.evaluate(X_real, y_real, verbose=0)
+        _, _, _, acc_real, _ = self.discriminator.evaluate(x_real, y_real, verbose=0)
         # prepare fake examples
         x_fake, y_fake, labels = self.generate_fake_samples(n_samples)
         # evaluate discriminator on fake examples
-        _, acc_fake = self.discriminator.evaluate(x_fake, y_fake, verbose=0)
+        _, _, _, acc_fake, _ = self.discriminator.evaluate(x_fake, y_fake, verbose=0)
         # summarize discriminator performance
-        print('>Accuracy real: %.0f%%, fake: %.0f%%' % (acc_real * 100, acc_fake * 100))
+        print(f'>Accuracy real: {acc_real * 100:.0f}%%, fake: {acc_fake * 100:.0f}%%')
         # save plot
-        self.save_plot(x_fake, epoch)
+        self.save_fake_sample_plot_images(x_fake=x_fake, labels=labels, epoch=epoch)
 
     def evaluate(self):
         # Evaluates the autoencoder based on the test data
         return self.autoencoder.evaluate(self.x_test_norm, [self.y_test, self.x_test_norm], verbose=0)
 
-    def plot_models(self, path="images"):
+    def save_model_architecture_images(self, path="images/architecture"):
         """ Saves all EPN model architectures as PNGs into a defined sub folder.
 
         :param path: str
@@ -308,11 +301,13 @@ class EntropyPropagationNetwork:
         plot_model(self.decoder, f"{path}/decoder_architecture.png", show_shapes=True, expand_nested=True)
         plot_model(self.gan, f"{path}/gan_architecture.png", show_shapes=True, expand_nested=True)
 
-    def show_reconstructions(self, samples):
+    def save_reconstruction_plot_images(self, samples, path="images/plots"):
         """ Pushes x samples through the autoencoder to generate & visualize reconstructions
 
         :param samples:
             Samples that matches the following shape [n_samples, autoencoder input shape]
+        :param path: str
+            Path to the directory where the plots are getting stored.
         :return:
             None
         """
@@ -320,34 +315,54 @@ class EntropyPropagationNetwork:
         reconstructions = self.autoencoder.predict(samples)
         plt.figure(figsize=(n_samples * 1.5, 3))
         for image_index in range(n_samples):
-            plt.subplot(3, n_samples, 1 + image_index)
-            plot_image(np.reshape(samples[image_index], (28, 28)))
-            plt.subplot(3, n_samples, 1 + n_samples + image_index)
-            plot_image(np.reshape(reconstructions[1][image_index], (28, 28)))
-            x = plt.subplot(3, n_samples, 1 + n_samples + image_index)
-            x.annotate(str(np.argmax(reconstructions[0][image_index])), xy=(0, image_index))
-        plt.show()
+            # orig image
+            _ = add_subplot(image=samples[image_index, :, :, 0], n_cols=3, n_rows=n_samples, index=1 + image_index)
+            # reconstruction
+            plot_obj = add_subplot(image=reconstructions[1][image_index, :, :, 0], n_cols=3, n_rows=n_samples,
+                                   index=1 + n_samples + image_index)
+            # label
+            plot_obj.annotate(str(np.argmax(reconstructions[0][image_index])), xy=(0, 0))
 
-    def show_fake_samples(self, n_samples=10):
-        """ Generates x fake samples and shows them as a plot.
+        filename = 'pre_reconstructed_plot.png' if self.is_pretraining else 'post_reconstructed_plot.png'
+        save_plot_as_image(path=path, filename=filename)
+
+    def save_fake_sample_plot_images(self, x_fake=None, labels=None, epoch=-1, n_samples=100, path="images/plots"):
+        """ Create and save a plot of generated images (reversed grayscale)
 
             Useful to show if the generator is able to generate real looking images from random points.
 
+        :param x_fake:
+        :param labels:
+        :param epoch:
         :param n_samples: int
             Number of samples that should be generated and plotted.
+        :param path: str
+            Path to the directory where the plots are getting stored.
         :return:
-            None
         """
-        samples = self.generate_fake_samples(n_samples)
-        plt.figure(figsize=(n_samples * 1.5, 3))
-        for image_index in range(n_samples):
-            plt.subplot(3, n_samples, 1 + n_samples + image_index)
-            plot_image(np.reshape(samples[0][image_index], (28, 28)))
-            x = plt.subplot(3, n_samples, 1 + n_samples + image_index)
-            x.annotate(str(samples[2][image_index]), xy=(0, image_index))
-        plt.show()
+        n_columns = math.ceil(math.sqrt(n_samples))
+        n_rows = math.ceil(n_samples / n_columns)
+        if x_fake is None or labels is None:
+            x_fake, _, labels = self.generate_fake_samples(n_samples)
+
+        labels_numerical = tf.argmax(labels, axis=1).numpy()
+        plt.figure(figsize=(n_columns, n_rows))
+        for i in range(n_samples):
+            plot_obj = add_subplot(image=x_fake[i, :, :, 0], n_cols=n_columns, n_rows=n_rows, index=1 + i)
+            plot_obj.annotate(str(labels_numerical[i]), xy=(0, 0))
+
+        save_plot_as_image(path=path, filename=f'generated_plot_e{epoch + 1:03d}.png')
 
 
-def plot_image(image):
+def add_subplot(image, n_cols, n_rows, index):
+    plot_obj = plt.subplot(n_cols, n_rows, index)
     plt.imshow(image, cmap="binary")
     plt.axis("off")
+    return plot_obj
+
+
+def save_plot_as_image(path, filename):
+    Path(path).mkdir(parents=True, exist_ok=True)
+    full_path = f'{path}/{filename}'
+    plt.savefig(full_path)
+    plt.close()
