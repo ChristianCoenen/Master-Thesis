@@ -7,8 +7,8 @@ def get_weights_no_bias(layers):
     weights = {}
     for layer in layers:
         for i, weight_var in enumerate(layer.weights):
-            if 'kernel' in weight_var.name:
-                weights[weight_var.name] = (layer.get_weights()[i])
+            if "kernel" in weight_var.name:
+                weights[weight_var.name] = layer.get_weights()[i]
     return weights
 
 
