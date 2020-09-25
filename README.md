@@ -2,37 +2,34 @@
 
 ## Requirements
 - Python 3.8
-- pipenv 2018.11.26
+- Poetry 1.1
 - graphviz (optional)
 
 ## Setup Mac
 1. Download & install the latest python 3.8 release from [here](https://www.python.org/downloads/mac-osx/) 
 
-2. Install pipenv
-    ```
-    brew install pipenv
-    ```
+2. Download and install poetry as explained [here] (https://python-poetry.org/docs/)
 
 3. Optional: Install graphviz
     ```
     brew install graphviz
     ```
 
-4. Run the following command to create a virtual environment with needed dependencies installed
+4. Run the following command in the root of the repository to create a virtual environment with needed dependencies installed
     ```
-    pipenv install
+    poetry install
     ```
 5. Start the program ...
 
     5.1. ... using the command line
 
     ```
-    pipenv run python main.py
+    poetry run python main.py
     ```
 
     5.2. ... through an IDE:
 
-    Select venv as interpreter & run main.py
+    Select the poetry venv as interpreter & run main.py
 
 
 ## Graphviz
