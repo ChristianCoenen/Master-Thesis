@@ -1,4 +1,4 @@
-from epn.epn import EntropyPropagationNetwork
+from epn.network import EntropyPropagationNetwork
 from tests import test_functions
 import pytest
 import numpy as np

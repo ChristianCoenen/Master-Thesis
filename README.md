@@ -35,9 +35,9 @@
 
 ## Graphviz
 If you have installed Graphviz and would like to see architecture outputs,
-make sure to set the graphviz flag in the config.py in the root folder
+make sure to set the graphviz_installed parameter to true when calling the EPN constructor
 ```python
-GRAPHVIZ = True
+epn = EntropyPropagationNetwork(..., graphviz_installed=True)
 ```
 
 ## Troubleshooting

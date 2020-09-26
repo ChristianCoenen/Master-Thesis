@@ -11,7 +11,6 @@ from pathlib import Path
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
-import config
 import math
 
 
@@ -27,7 +26,15 @@ class EntropyPropagationNetwork:
     Note that the Decoder can also be referenced as Generator when generating fake samples
     """
 
-    def __init__(self, dataset="mnist", weight_sharing=True, encoder_dims=None, latent_dim=40, classification_dim=10):
+    def __init__(
+        self,
+        dataset="mnist",
+        weight_sharing=True,
+        encoder_dims=None,
+        latent_dim=40,
+        classification_dim=10,
+        graphviz_installed=False,
+    ):
         """
         :param dataset: str
             Selects the underlying dataset.
@@ -77,8 +84,8 @@ class EntropyPropagationNetwork:
         self.gan = self.build_gan()
         self.gan.compile(loss="binary_crossentropy", optimizer=Adam(lr=0.0002, beta_1=0.5))
 
-        # only set config.GRAPHVIZ to true if you have it installed (see README)
-        self.save_model_architecture_images() if config.GRAPHVIZ else None
+        # only set graphviz_installed to true if you have it installed (see README)
+        self.save_model_architecture_images() if graphviz_installed else None
         self.is_pretraining = True
 
     def build_discriminator(self):
