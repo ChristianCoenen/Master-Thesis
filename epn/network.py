@@ -29,6 +29,7 @@ class EntropyPropagationNetwork:
     def __init__(
         self,
         dataset="mnist",
+        dataset_path=None,
         weight_sharing=True,
         encoder_dims=None,
         latent_dim=40,
@@ -63,6 +64,10 @@ class EntropyPropagationNetwork:
             (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_mnist(fashion=True)
         elif dataset == "cifar10":
             (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_cifar()
+        elif dataset == "maze_memories":
+            (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_maze_memories(
+                dataset_path
+            )
         else:
             raise ValueError("Unknown dataset!")
 

@@ -1,4 +1,5 @@
 from tensorflow import keras
+from sklearn.model_selection import train_test_split
 import numpy as np
 
 
@@ -31,3 +32,17 @@ def get_cifar():
     y_test = keras.utils.to_categorical(y_test, num_classes=10)
     print("Shape after one-hot encoding: ", y_train.shape)
     return (x_train_norm, y_train), (x_test_norm, y_test)
+
+
+def get_maze_memories(path):
+    data = np.load(path, allow_pickle=True)
+    np.random.shuffle(data)
+
+    x = np.zeros((len(data), data[0][0].shape[1] + data[0][1].shape[0]))
+    y = data[:, 3].reshape(-1, 1)
+    # There is probably a vectorized way to do it
+    for idx, row in enumerate(data):
+        x[idx] = np.hstack((data[idx][0].astype(int), data[idx][1].reshape(1, -1)))
+
+    x_train, y_train, x_test, y_test = train_test_split(x, y, test_size=0.2)
+    return (x_train, y_train), (x_test, y_test)
