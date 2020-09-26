@@ -5,8 +5,8 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.utils import to_categorical, plot_model
 from numpy.random import randint
 from numpy import concatenate, zeros, ones
-from src.custom_layers import DenseTranspose
-from src import datasets
+from epn.custom_layers import DenseTranspose
+from epn import datasets
 from pathlib import Path
 import tensorflow as tf
 import matplotlib.pyplot as plt

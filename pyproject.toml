@@ -3,6 +3,12 @@ name = "entropy-propagation"
 version = "0.1.0"
 description = ""
 authors = ["Christian Coenen <coenen.christian@outlook.com>"]
+readme="README.md"
+repository="https://github.com/ChristianCoenen/Entropy-Propagation"
+exclude = ["images/"]
+packages = [
+    { include = "epn" },
+]
 
 [tool.poetry.dependencies]
 python = "^3.8.3"

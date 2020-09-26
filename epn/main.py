@@ -1,4 +1,4 @@
-from src.epn import EntropyPropagationNetwork
+from epn.epn import EntropyPropagationNetwork
 
 
 # Configure and train the Entropy Propagation Network
