@@ -35,6 +35,7 @@ class EntropyPropagationNetwork:
         encoder_dims=None,
         latent_dim=40,
         classification_dim=10,
+        autoencoder_loss=["mean_squared_error", "binary_crossentropy"],
         graphviz_installed=False,
     ):
         """
@@ -82,9 +83,7 @@ class EntropyPropagationNetwork:
 
         self.encoder, self.decoder, self.autoencoder = self.build_autoencoder()
 
-        self.autoencoder.compile(
-            loss=["mean_squared_error", "binary_crossentropy"], optimizer="adam", metrics=["accuracy"]
-        )
+        self.autoencoder.compile(loss=autoencoder_loss, optimizer="adam", metrics=["accuracy"])
 
         # GAN model (decoder & discriminator) - For the GAN model we will only train the generator
         self.discriminator.trainable = False
