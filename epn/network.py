@@ -57,6 +57,7 @@ class EntropyPropagationNetwork:
         self.encoder_dims = [100] if encoder_dims is None else encoder_dims
         self.latent_dim = latent_dim
         self.classification_dim = classification_dim
+        self.dataset = dataset
 
         if dataset == "mnist":
             (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_mnist()
@@ -229,12 +230,19 @@ class EntropyPropagationNetwork:
         labels = self.y_train[ix]
         return x, y, labels
 
-    def train_autoencoder(self, epochs=5):
-        self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm], epochs=epochs, validation_split=0.1)
-        self.save_reconstruction_plot_images(self.x_train_norm[10:20])
-        self.save_fake_sample_plot_images()
+    def train_autoencoder(self, epochs=5, batch_size=32, validation_split=0.1):
+        self.autoencoder.fit(
+            self.x_train_norm,
+            [self.y_train, self.x_train_norm],
+            batch_size=batch_size,
+            epochs=epochs,
+            validation_split=validation_split,
+        )
+        if self.dataset != "maze_memories":
+            self.save_reconstruction_plot_images(self.x_train_norm[10:20])
+            self.save_fake_sample_plot_images()
 
-    def train(self, epochs=5, batch_size=1024, pre_train_epochs=3, train_encoder=True):
+    def train(self, epochs=5, batch_size=32, pre_train_epochs=3, train_encoder=True):
         batch_per_epoch = int(60000 / batch_size)
         half_batch = int(batch_size / 2)
 
