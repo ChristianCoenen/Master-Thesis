@@ -23,7 +23,7 @@ class EntropyPropagationNetwork:
     3. Discriminator model
     4. GAN model which is constructed by combining the Decoder with the Discriminator model
 
-    Note that the Decoder can also be referenced as Generator when generating fake samples
+    Note that the Decoder can also be referenced as Generator when generating fake samples.
     """
 
     def __init__(
@@ -35,28 +35,48 @@ class EntropyPropagationNetwork:
         encoder_dims=None,
         latent_dim=40,
         classification_dim=10,
-        autoencoder_loss=["mean_squared_error", "binary_crossentropy"],
+        discriminator_dims=None,
+        autoencoder_loss=None,
         graphviz_installed=False,
     ):
         """
         :param dataset: str
             Selects the underlying dataset.
-            Valid values: ['mnist', 'fashion_mnist']
+            Valid values: ['mnist', 'fashion_mnist', 'cifar10', 'maze_memories']
+        :param dataset_path: str
+            Path to the dataset that is used. Currently only required when using 'maze_memories' as dataset.
+        :param shuffle_data: bool
+            Whether to shuffle the dataset when requesting it from the datasets class.
+            Currently only used when using 'maze_memories' as dataset.
         :param weight_sharing: bool
             If set to true, the decoder will used the weights created on the encoder side using DenseTranspose layers
         :param encoder_dims: [int]
-            Each value (x) represents one layer with x neurons.
-        :param latent_dim:
+            Each value (x) represents one hidden encoder layer with x neurons.
+        :param latent_dim: int
             Number of latent space neurons (bottleneck layer in the Autoencoder)
-        :param classification_dim:
+        :param classification_dim: int
             Output neurons to classify the inputs based on their label
             Needs to be of same dim as the number of output labels.
             Is not automatically generated based on dataset, because it might be variable for Reinforcement Learning
+        :param discriminator_dims: [int]
+            Each value (x) represents one hidden layer with x neurons. By default, the discriminator network will
+            mimic the structure of the hidden encoder layers (since the generator has the same structure as the encoder,
+            the discriminator will and decoder are of the same size which is mostly good in an adversarial setting).
+        :param autoencoder_loss: [str, str]
+            This parameter allows to define the classification and reconstruction loss functions for the autoencoder.
+        :param graphviz_installed: bool
+            If graphviz is installed and this parameter set to true, images of the model architectures are generated
+            and saved under './images/architecture'
         """
 
         self.weight_sharing = weight_sharing
         # default None because of side effects with mutable default values
         self.encoder_dims = [100] if encoder_dims is None else encoder_dims
+        self.discriminator_dims = self.encoder_dims if discriminator_dims is None else discriminator_dims
+        self.autoencoder_loss = (
+            ["mean_squared_error", "binary_crossentropy"] if autoencoder_loss is None else autoencoder_loss
+        )
+
         self.latent_dim = latent_dim
         self.classification_dim = classification_dim
         self.dataset = dataset
@@ -83,7 +103,7 @@ class EntropyPropagationNetwork:
 
         self.encoder, self.decoder, self.autoencoder = self.build_autoencoder()
 
-        self.autoencoder.compile(loss=autoencoder_loss, optimizer="adam", metrics=["accuracy"])
+        self.autoencoder.compile(loss=self.autoencoder_loss, optimizer="adam", metrics=["accuracy"])
 
         # GAN model (decoder & discriminator) - For the GAN model we will only train the generator
         self.discriminator.trainable = False
@@ -105,12 +125,11 @@ class EntropyPropagationNetwork:
         """
         inputs = Input(shape=self.input_shape, name="discriminator_inputs")
         x = Flatten()(inputs)
-        x = Dense(1024, activation=LeakyReLU(alpha=0.2))(x)
-        x = Dropout(0.3)(x)
-        x = Dense(512, activation=LeakyReLU(alpha=0.2))(x)
-        x = Dropout(0.3)(x)
-        x = Dense(256, activation=LeakyReLU(alpha=0.2))(x)
-        x = Dropout(0.3)(x)
+
+        for layer_dim in self.discriminator_dims:
+            x = Dense(layer_dim, activation=LeakyReLU(alpha=0.2))(x)
+            x = Dropout(0.3)(x)
+
         real_or_fake = Dense(1, activation="sigmoid", name="real_or_fake")(x)
         classification = Dense(self.classification_dim, activation="softmax", name="classification")(x)
         return Model(inputs, outputs=[real_or_fake, classification], name="discriminator")

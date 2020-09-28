@@ -6,10 +6,10 @@
 - Poetry 1.1
 - graphviz (optional)
 
-## Setup Mac
+## Setup (only tested on MacOS)
 1. Download & install the latest python 3.8 release from [here](https://www.python.org/downloads/mac-osx/) 
 
-2. Download and install poetry as explained [here] (https://python-poetry.org/docs/)
+2. Download and install poetry as explained [here](https://python-poetry.org/docs/)
 
 3. Optional: Install graphviz
     ```
