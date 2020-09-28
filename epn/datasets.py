@@ -34,15 +34,16 @@ def get_cifar():
     return (x_train_norm, y_train), (x_test_norm, y_test)
 
 
-def get_maze_memories(path):
+def get_maze_memories(path, test_size=0.2):
     data = np.load(path, allow_pickle=True)
     np.random.shuffle(data)
 
-    x = np.zeros((len(data), data[0][0].shape[1] + data[0][1].shape[0]))
-    y = data[:, 3].reshape(-1, 1)
+    x = np.zeros((len(data), data[0][0].shape[1] + data[0][1].shape[0]), dtype=int)
+    y = np.zeros((len(data), data[0][3].shape[1]), dtype=int)
     # There is probably a vectorized way to do it
     for idx, row in enumerate(data):
         x[idx] = np.hstack((data[idx][0].astype(int), data[idx][1].reshape(1, -1)))
+        y[idx] = data[idx][3]
 
-    x_train, y_train, x_test, y_test = train_test_split(x, y, test_size=0.2)
+    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=test_size)
     return (x_train, y_train), (x_test, y_test)
