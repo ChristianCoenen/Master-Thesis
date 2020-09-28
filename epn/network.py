@@ -30,6 +30,7 @@ class EntropyPropagationNetwork:
         self,
         dataset="mnist",
         dataset_path=None,
+        shuffle_data=False,
         weight_sharing=True,
         encoder_dims=None,
         latent_dim=40,
@@ -67,7 +68,7 @@ class EntropyPropagationNetwork:
             (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_cifar()
         elif dataset == "maze_memories":
             (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_maze_memories(
-                dataset_path
+                dataset_path, shuffle=shuffle_data
             )
         else:
             raise ValueError("Unknown dataset!")
@@ -125,7 +126,7 @@ class EntropyPropagationNetwork:
         for idx, encoder_layer in enumerate(self.encoder_dims):
             encoder_layers.append(Dense(self.encoder_dims[idx], activation=LeakyReLU(alpha=0.2), name=f"encoder_{idx}"))
         encoder_to_classification = Dense(
-            self.classification_dim, activation="softmax", name=f"encoder_{len(self.encoder_dims) }_classification"
+            self.classification_dim, activation="softmax", name=f"encoder_{len(self.encoder_dims)}_classification"
         )
         encoder_to_latent_space = Dense(
             self.latent_dim, activation=LeakyReLU(alpha=0.2), name=f"encoder_{len(self.encoder_dims)}_latent_space"
