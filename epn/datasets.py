@@ -45,5 +45,5 @@ def get_maze_memories(path, test_size=0.2, shuffle=False):
         x[idx] = np.hstack((data[idx][0].astype(int), data[idx][1].reshape(1, -1)))
         y[idx] = data[idx][3]
 
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=test_size)
+    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=test_size, shuffle=shuffle)
     return (x_train, y_train), (x_test, y_test)
