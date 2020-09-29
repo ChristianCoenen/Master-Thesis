@@ -3,6 +3,11 @@ from epn.network import EntropyPropagationNetwork
 from epn.helper import add_subplot, save_plot_as_image
 from copy import deepcopy
 import tensorflow as tf
+from tensorflow.keras.utils import plot_model
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.layers import Input
+from tensorflow.keras.models import Model
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -35,6 +40,37 @@ class EntropyPropagationNetworkRL(EntropyPropagationNetwork):
         )
         self.env = env
         self.nr_tiles = self.env.maze.size[0] * self.env.maze.size[1]
+
+        # Create the special GAN network that works against the encoder instead of the decoder
+        self.special_discriminator = self.build_discriminator(custom_input_shape=self.classification_dim)
+        # Special GAN model that uses the encoder for the inputs instead of the decoder
+        self.special_discriminator.trainable = False
+        self.special_gan = self.build_special_gan(self.encoder, self.special_discriminator)
+        self.special_gan.compile(loss="binary_crossentropy", optimizer=Adam(lr=0.0002, beta_1=0.5))
+        self.save_model_architecture_images()
+
+    def build_special_gan(self, encoder, discriminator):
+        inputs = Input(shape=self.classification_dim + self.env.action_space.n, name="gan_inputs")
+        encoded = encoder(inputs)
+        # Only use the classification outputs from the encoder in the GAN setting
+        discriminated = discriminator(encoded[:, : self.classification_dim])
+        return Model(inputs, discriminated)
+
+    def save_model_architecture_images(self, path="images/architecture"):
+        """Saves all EPN-RL model architectures as PNGs into a defined sub folder.
+
+        :param path: str
+            Relative path from the root directory
+        :return:
+            None
+        """
+        plot_model(
+            self.special_discriminator,
+            f"{path}/special_discriminator_architecture.png",
+            show_shapes=True,
+            expand_nested=True,
+        )
+        plot_model(self.special_gan, f"{path}/special_gan_architecture.png", show_shapes=True, expand_nested=True)
 
     def generate_random_episode(self):
         """Generates a random episode consisting of (env_state, action, reward, next_env_state, done).
