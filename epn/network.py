@@ -8,6 +8,7 @@ from numpy import concatenate, zeros, ones
 from epn.custom_layers import DenseTranspose
 from epn import datasets
 from pathlib import Path
+from epn.helper import add_subplot, save_plot_as_image
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
@@ -249,48 +250,17 @@ class EntropyPropagationNetwork:
         labels = self.y_train[ix]
         return x, y, labels
 
-    def train_autoencoder(self, epochs=5, batch_size=32, validation_split=0.1, callbacks=None, scene=None):
-        # Only pass a scene object when using the 'maze_memories' dataset
-        if scene:
-            for epoch in range(epochs):
-                # TODO: currently only working for batch size 1 (might not be fixed cause 1 is best for visualization)
-                for idx, (x_train_norm, y_train) in enumerate(zip(self.x_train_norm, self.y_train)):
-                    scene.update_epoch_step_counter(epoch + 1, idx + 1)
-                    # Transform vectors to matrices - otherwise keras can't process them
-                    x_train_norm = x_train_norm.reshape(1, -1)
-                    y_train = y_train.reshape(1, -1)
-
-                    # Calculate outputs and visualize both inputs and outputs
-                    # TODO: also get hidden layer outputs
-                    outputs = self.autoencoder.predict(x_train_norm)
-                    scene.visualize_input(x_train_norm)
-                    scene.visualize_predictions(outputs[0][0])
-                    scene.visualize_reconstructions(outputs[1][0])
-
-                    # Train the network on the visualized inputs / outputs and visualize the updated weights
-                    self.autoencoder.train_on_batch(x_train_norm, [y_train, x_train_norm])
-                    scene.update_weights()
-                    scene.wait(1)
-
-        else:
-            self.autoencoder.fit(
-                self.x_train_norm,
-                [self.y_train, self.x_train_norm],
-                batch_size=batch_size,
-                epochs=epochs,
-                validation_split=validation_split,
-                callbacks=callbacks,
-            )
-        if self.dataset != "maze_memories":
-            self.save_reconstruction_plot_images(self.x_train_norm[10:20])
-            self.save_fake_sample_plot_images()
+    def train_autoencoder(self, **kwargs):
+        self.visualize_trained_autoencoder_to_file(state="pre_autoencoder_training")
+        self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm], **kwargs)
+        self.visualize_trained_autoencoder_to_file(state="post_autoencoder_training")
 
     def train(self, epochs=5, batch_size=32, pre_train_epochs=3, train_encoder=True):
         batch_per_epoch = int(60000 / batch_size)
         half_batch = int(batch_size / 2)
 
         if pre_train_epochs:
-            self.train_autoencoder(pre_train_epochs)
+            self.train_autoencoder(epochs=pre_train_epochs)
         self.is_pretraining = False
 
         # manually enumerate epochs
@@ -372,6 +342,10 @@ class EntropyPropagationNetwork:
         plot_model(self.decoder, f"{path}/decoder_architecture.png", show_shapes=True, expand_nested=True)
         plot_model(self.gan, f"{path}/gan_architecture.png", show_shapes=True, expand_nested=True)
 
+    def visualize_trained_autoencoder_to_file(self, state):
+        self.save_reconstruction_plot_images(self.x_train_norm[10:20])
+        self.save_fake_sample_plot_images()
+
     def save_reconstruction_plot_images(self, samples, path="images/plots"):
         """Pushes x samples through the autoencoder to generate & visualize reconstructions
 
@@ -427,17 +401,3 @@ class EntropyPropagationNetwork:
             plot_obj.annotate(str(labels_numerical[i]), xy=(0, 0))
 
         save_plot_as_image(path=path, filename=f"generated_plot_e{epoch + 1:03d}.png")
-
-
-def add_subplot(image, n_cols, n_rows, index):
-    plot_obj = plt.subplot(n_cols, n_rows, index)
-    plt.imshow(image, cmap="binary")
-    plt.axis("off")
-    return plot_obj
-
-
-def save_plot_as_image(path, filename):
-    Path(path).mkdir(parents=True, exist_ok=True)
-    full_path = f"{path}/{filename}"
-    plt.savefig(full_path)
-    plt.close()
