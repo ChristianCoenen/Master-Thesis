@@ -115,7 +115,7 @@ class EntropyPropagationNetwork:
         self.save_model_architecture_images() if graphviz_installed else None
         self.is_pretraining = True
 
-    def build_discriminator(self):
+    def build_discriminator(self, custom_input_shape=None):
         """Creates a discriminator model.
 
         Leaky ReLU is recommended for Discriminator networks.
@@ -124,7 +124,10 @@ class EntropyPropagationNetwork:
 
         :return: Discriminator model
         """
-        inputs = Input(shape=self.input_shape, name="discriminator_inputs")
+        if not custom_input_shape:
+            inputs = Input(shape=self.input_shape, name="discriminator_inputs")
+        else:
+            inputs = Input(shape=custom_input_shape, name="discriminator_inputs")
         x = Flatten()(inputs)
 
         for layer_dim in self.discriminator_dims:
