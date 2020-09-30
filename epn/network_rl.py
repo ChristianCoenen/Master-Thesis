@@ -33,37 +33,26 @@ class EntropyPropagationNetworkRL(EntropyPropagationNetwork):
         :param env: MazeEnv
             MazeEnv object initialized with the same maze & config that was used to generate the dataset.
         """
+        self.nr_valid_tiles = np.count_nonzero(env.maze.to_impassable() == 0)
+        self.nr_tiles = env.maze.size[0] * env.maze.size[1]
+        self.env = env
         super().__init__(
             dataset=kwargs.get("dataset", "maze_memories"),
-            classification_dim=np.count_nonzero(env.maze.to_impassable() == 0),
+            classification_dim=self.nr_valid_tiles,
             **kwargs,
         )
-        self.env = env
-        self.nr_tiles = self.env.maze.size[0] * self.env.maze.size[1]
 
         # Create the special GAN network that works against the encoder instead of the decoder
         self.special_discriminator = self.build_discriminator(custom_input_shape=self.classification_dim)
+        self.special_discriminator.compile(
+            loss=["binary_crossentropy", "mean_squared_error"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"]
+        )
         # Special GAN model that uses the encoder for the inputs instead of the decoder
         self.special_discriminator.trainable = False
         self.special_gan = self.build_special_gan(self.encoder, self.special_discriminator)
         self.special_gan.compile(loss="binary_crossentropy", optimizer=Adam(lr=0.0002, beta_1=0.5))
-        self.save_model_architecture_images()
-
-    def build_special_gan(self, encoder, discriminator):
-        inputs = Input(shape=self.classification_dim + self.env.action_space.n, name="gan_inputs")
-        encoded = encoder(inputs)
-        # Only use the classification outputs from the encoder in the GAN setting
-        discriminated = discriminator(encoded[:, : self.classification_dim])
-        return Model(inputs, discriminated)
-
-    def save_model_architecture_images(self, path="images/architecture"):
-        """Saves all EPN-RL model architectures as PNGs into a defined sub folder.
-
-        :param path: str
-            Relative path from the root directory
-        :return:
-            None
-        """
+        # TODO: I think this can be in a method or so, but overwriting super class method results in error
+        path = "images/architecture"
         plot_model(
             self.special_discriminator,
             f"{path}/special_discriminator_architecture.png",
@@ -72,8 +61,18 @@ class EntropyPropagationNetworkRL(EntropyPropagationNetwork):
         )
         plot_model(self.special_gan, f"{path}/special_gan_architecture.png", show_shapes=True, expand_nested=True)
 
-    def generate_random_episode(self):
+    def build_special_gan(self, encoder, discriminator):
+        inputs = Input(shape=self.classification_dim + self.env.action_space.n, name="gan_inputs")
+        encoded = encoder(inputs)
+        # Only use the classification outputs from the encoder in the GAN setting
+        discriminated = discriminator(encoded[:, : self.classification_dim])
+        return Model(inputs, discriminated)
+
+    def _generate_random_episode(self, get_obj):
         """Generates a random episode consisting of (env_state, action, reward, next_env_state, done).
+
+        :param get_obj: bool
+            Whether to return a copy of the maze object in a specific env state or the env state (without walls) itself.
 
         :return env_state_obj: Maze
             Maze object containing the env_state in different formats (binary, values, rgb)
@@ -87,34 +86,88 @@ class EntropyPropagationNetworkRL(EntropyPropagationNetwork):
         :done: bool
             Information whether the goal was reached by taking 'action' in 'env_state' or not.
         """
-        self.env.reset(randomize_start=True)
-        env_state_obj = deepcopy(self.env.maze)
         action = np.random.randint(0, self.env.action_space.n)
-        _, reward, done, _ = self.env.step(action)
-        next_env_state_obj = deepcopy(self.env.maze)
-        return env_state_obj, action, reward, next_env_state_obj, done
+        self.env.reset(randomize_start=True)
+        env_state = deepcopy(self.env.maze) if get_obj else self.env.maze.to_valid_obs()
+        next_env_state, reward, done, _ = self.env.step(action)
+        next_env_state = deepcopy(self.env.maze) if get_obj else self.env.maze.to_valid_obs()
+        return env_state, action, reward, next_env_state, done
 
-    def predict_next_env_state_and_latent_space(self, env_state_obj, action):
+    def generate_random_episodes(self, get_obj, n):
+        if get_obj:
+            env_state = np.empty((n, 1), dtype=type(self.env))
+            next_env_state = np.empty((n, 1), dtype=type(self.env))
+        else:
+            env_state = np.empty((n, self.nr_valid_tiles), dtype=int)
+            next_env_state = np.empty((n, self.nr_valid_tiles), dtype=int)
+
+        action = np.empty((n, 1), dtype=int)
+        reward = np.empty((n, 1), dtype=float)
+        done = np.empty((n, 1), dtype=bool)
+
+        for i in range(n):
+            env_state[i], action[i], reward[i], next_env_state[i], done[i] = self._generate_random_episode(get_obj)
+        return env_state, action, reward, next_env_state, done
+
+    def predict_next_env_state_and_latent_space(self, env_state, action):
         """Given an env_state, the generator predicts the resulting env_state + latent space"""
-        inputs = self.env_state_and_action_to_inputs(env_state_obj.to_valid_obs(), action)
+        inputs = self.env_state_and_action_to_inputs(env_state, action)
         return self.encoder.predict(inputs)
 
     def env_state_and_action_to_inputs(self, env_state, action):
-        action_one_hot = tf.keras.utils.to_categorical(action, num_classes=self.env.action_space.n).reshape(1, -1)
+        action_one_hot = tf.keras.utils.to_categorical(action, num_classes=self.env.action_space.n)
         inputs = np.concatenate((env_state, action_one_hot), axis=1)
         return inputs
 
-    def train(self, epochs=5, batch_size=32, pre_train_epochs=3, train_encoder=True):
-        # TODO: implement
-        pass
+    def train(self, epochs=5, batch_size=2, steps_per_epoch=100, train_encoder=True):
+        half_batch = int(batch_size / 2)
+        # manually enumerate epochs
+        for i in range(epochs):
+            # enumerate batches over the training set
+            for j in range(steps_per_epoch):
+                """ Discriminator training """
+                # create training set for the discriminator
+                env_state, action, _, next_env_state, _ = self.generate_random_episodes(get_obj=False, n=half_batch)
+                pred = self.predict_next_env_state_and_latent_space(env_state, action)
+                next_env_state_pred = pred[:, : self.nr_valid_tiles]
+                real_labels, fake_labels = (np.ones(shape=(half_batch, 1)), np.zeros(shape=(half_batch, 1)))
+                # This is a bit weird but the inputs to the encoder are always valid states
+                x_discriminator = np.vstack((env_state, env_state))
+                y_discriminator = np.vstack((next_env_state, next_env_state_pred))
+                labels = np.vstack((real_labels, fake_labels))
+                # One-sided label smoothing (not sure if it makes sense in rl setting)
+                # y_discriminator[:half_batch] = 0.9
+                # update discriminator model weights
+                d_loss, _, _, _, _ = self.special_discriminator.train_on_batch(
+                    x_discriminator, [labels, y_discriminator]
+                )
 
-    def visualize_trained_autoencoder_to_file(self, state, n_samples=2, path="images/plots"):
+                """ Generator training (discriminator weights deactivated!) """
+                # prepare points in latent space as input for the generator
+                env_state, action, _, next_env_state, _ = self.generate_random_episodes(get_obj=False, n=batch_size)
+                env_state = self.env_state_and_action_to_inputs(env_state, action)
+                # create inverted labels for the fake samples (because generator goal is to trick the discriminator)
+                # so our objective (label) is 1 and if discriminator says 1 we have an error of 0 and vice versa
+                real_labels = np.ones((batch_size, 1))
+                # update the generator via the discriminator's error
+                g_loss, _, _ = self.special_gan.train_on_batch(env_state, [real_labels, next_env_state])
+
+                """ Autoencoder training """
+                # this might result in the discriminator outperforming the generator depending on architecture
+                self.autoencoder.train_on_batch(env_state, [next_env_state, env_state]) if train_encoder else None
+
+                # summarize loss on this batch
+                print(
+                    f">{i + 1}, {j + 1:0{len(str(steps_per_epoch))}d}/{steps_per_epoch}, d={d_loss:.3f}, g={g_loss:.3f}"
+                )
+
+    def visualize_trained_autoencoder_to_file(self, state, n_samples=10, path="images/plots"):
         width = n_samples
         height = 4
         plt.figure(figsize=(width, height))
         for idx in range(n_samples):
-            env_state_obj, action, _, _, _ = self.generate_random_episode()
-            inputs = self.env_state_and_action_to_inputs(env_state_obj.to_valid_obs(), action)
+            env_state_obj, action, _, _, _ = self._generate_random_episode(get_obj=True)
+            inputs = self.env_state_and_action_to_inputs(env_state_obj.to_valid_obs(), np.array(action).reshape(1, -1))
             [pred_next_env_state, reconstruction] = self.autoencoder.predict(inputs)
 
             # Sampled maze state + action
