@@ -113,7 +113,6 @@ class EntropyPropagationNetwork:
 
         # only set graphviz_installed to true if you have it installed (see README)
         self.save_model_architecture_images() if graphviz_installed else None
-        self.is_pretraining = True
 
     def build_discriminator(self, custom_input_shape=None):
         """Creates a discriminator model.
@@ -254,24 +253,21 @@ class EntropyPropagationNetwork:
         return x, y, labels
 
     def train_autoencoder(self, **kwargs):
+        # TODO: method name is not optimal (trained)
         self.visualize_trained_autoencoder_to_file(state="pre_autoencoder_training")
         self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm], **kwargs)
         self.visualize_trained_autoencoder_to_file(state="post_autoencoder_training")
 
-    def train(self, epochs=5, batch_size=32, pre_train_epochs=3, train_encoder=True):
-        batch_per_epoch = int(60000 / batch_size)
+    def train(self, epochs=5, batch_size=32, steps_per_epoch=100, train_encoder=True):
         half_batch = int(batch_size / 2)
-
-        if pre_train_epochs:
-            self.train_autoencoder(epochs=pre_train_epochs)
-        self.is_pretraining = False
 
         # manually enumerate epochs
         for i in range(epochs):
             # enumerate batches over the training set
-            for j in range(batch_per_epoch):
+            for j in range(steps_per_epoch):
                 """ Discriminator training """
                 # create training set for the discriminator
+                # TODO: labels_real one hot size 10 and y_real is 0 / 1. I think naming is not optimal (got confused)
                 x_real, y_real, labels_real = self.generate_real_samples(n_samples=half_batch)
                 x_fake, y_fake, labels_fake = self.generate_fake_samples(n_samples=half_batch)
                 x_discriminator, y_discriminator = np.vstack((x_real, x_fake)), np.vstack((y_real, y_fake))
@@ -296,12 +292,12 @@ class EntropyPropagationNetwork:
 
                 # summarize loss on this batch
                 print(
-                    f">{i + 1}, {j + 1:0{len(str(batch_per_epoch))}d}/{batch_per_epoch}, d={d_loss:.3f}, g={g_loss:.3f}"
+                    f">{i + 1}, {j + 1:0{len(str(steps_per_epoch))}d}/{steps_per_epoch}, d={d_loss:.3f}, g={g_loss:.3f}"
                 )
 
             # evaluate the model performance each epoch
             self.summarize_performance(i)
-        self.save_reconstruction_plot_images(self.x_train_norm[10:20])
+        self.save_reconstruction_plot_images(self.x_train_norm[10:20], state="post_gan_training")
 
     def summarize_performance(self, epoch, n_samples=100):
         """Evaluate the discriminator, plot generated images, save generator model
@@ -346,10 +342,10 @@ class EntropyPropagationNetwork:
         plot_model(self.gan, f"{path}/gan_architecture.png", show_shapes=True, expand_nested=True)
 
     def visualize_trained_autoencoder_to_file(self, state):
-        self.save_reconstruction_plot_images(self.x_train_norm[10:20])
+        self.save_reconstruction_plot_images(self.x_train_norm[10:20], state)
         self.save_fake_sample_plot_images()
 
-    def save_reconstruction_plot_images(self, samples, path="images/plots"):
+    def save_reconstruction_plot_images(self, samples, state, path="images/plots"):
         """Pushes x samples through the autoencoder to generate & visualize reconstructions
 
         :param samples:
@@ -375,8 +371,7 @@ class EntropyPropagationNetwork:
             # label
             plot_obj.annotate(str(np.argmax(reconstructions[0][image_index])), xy=(0, 0))
 
-        filename = "pre_reconstructed_plot.png" if self.is_pretraining else "post_reconstructed_plot.png"
-        save_plot_as_image(path=path, filename=filename)
+        save_plot_as_image(path=path, filename=state)
 
     def save_fake_sample_plot_images(self, x_fake=None, labels=None, epoch=-1, n_samples=100, path="images/plots"):
         """Create and save a plot of generated images (reversed grayscale)
