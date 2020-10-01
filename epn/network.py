@@ -114,7 +114,7 @@ class EntropyPropagationNetwork:
         # only set graphviz_installed to true if you have it installed (see README)
         self.save_model_architecture_images() if graphviz_installed else None
 
-    def build_discriminator(self, custom_input_shape=None):
+    def build_discriminator(self, custom_input_shape=None, classification=True):
         """Creates a discriminator model.
 
         Leaky ReLU is recommended for Discriminator networks.
@@ -127,6 +127,7 @@ class EntropyPropagationNetwork:
             inputs = Input(shape=self.input_shape, name="discriminator_inputs")
         else:
             inputs = Input(shape=custom_input_shape, name="discriminator_inputs")
+
         x = Flatten()(inputs)
 
         for layer_dim in self.discriminator_dims:
@@ -134,8 +135,11 @@ class EntropyPropagationNetwork:
             x = Dropout(0.3)(x)
 
         real_or_fake = Dense(1, activation="sigmoid", name="real_or_fake")(x)
-        classification = Dense(self.classification_dim, activation="softmax", name="classification")(x)
-        return Model(inputs, outputs=[real_or_fake, classification], name="discriminator")
+        if classification:
+            classification = Dense(self.classification_dim, activation="softmax", name="classification")(x)
+            return Model(inputs, outputs=[real_or_fake, classification], name="discriminator")
+        else:
+            return Model(inputs, outputs=real_or_fake, name="discriminator")
 
     def build_autoencoder(self):
         """Creates an encoder, decoder and autoencoder model.
