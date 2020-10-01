@@ -43,14 +43,16 @@ class EntropyPropagationNetworkRL(EntropyPropagationNetwork):
         )
 
         # Create the special GAN network that works against the encoder instead of the decoder
-        self.special_discriminator = self.build_discriminator(custom_input_shape=self.classification_dim)
-        self.special_discriminator.compile(
-            loss=["binary_crossentropy", "mean_squared_error"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"]
+        self.special_discriminator = self.build_discriminator(
+            custom_input_shape=self.classification_dim, classification=False
         )
-        # Special GAN model that uses the encoder for the inputs instead of the decoder
+        self.special_discriminator.compile(
+            loss=["binary_crossentropy"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"]
+        )
         self.special_discriminator.trainable = False
         self.special_gan = self.build_special_gan(self.encoder, self.special_discriminator)
         self.special_gan.compile(loss="binary_crossentropy", optimizer=Adam(lr=0.0002, beta_1=0.5))
+
         # TODO: I think this can be in a method or so, but overwriting super class method results in error
         path = "images/architecture"
         plot_model(
@@ -127,39 +129,49 @@ class EntropyPropagationNetworkRL(EntropyPropagationNetwork):
             for j in range(steps_per_epoch):
                 """ Discriminator training """
                 # create training set for the discriminator
-                env_state, action, _, next_env_state, _ = self.generate_random_episodes(get_obj=False, n=half_batch)
+                env_state, action, _, _, _ = self.generate_random_episodes(get_obj=False, n=half_batch)
                 pred = self.predict_next_env_state_and_latent_space(env_state, action)
                 next_env_state_pred = pred[:, : self.nr_valid_tiles]
                 real_labels, fake_labels = (np.ones(shape=(half_batch, 1)), np.zeros(shape=(half_batch, 1)))
-                # This is a bit weird but the inputs to the encoder are always valid states
-                x_discriminator = np.vstack((env_state, env_state))
-                y_discriminator = np.vstack((next_env_state, next_env_state_pred))
+                x_discriminator = np.vstack((env_state, next_env_state_pred))
                 labels = np.vstack((real_labels, fake_labels))
                 # One-sided label smoothing (not sure if it makes sense in rl setting)
-                # y_discriminator[:half_batch] = 0.9
+                # labels[:half_batch] = 0.9
                 # update discriminator model weights
-                d_loss, _, _, _, _ = self.special_discriminator.train_on_batch(
-                    x_discriminator, [labels, y_discriminator]
-                )
+                d_loss, _ = self.special_discriminator.train_on_batch(x_discriminator, labels)
 
                 """ Generator training (discriminator weights deactivated!) """
                 # prepare points in latent space as input for the generator
-                env_state, action, _, next_env_state, _ = self.generate_random_episodes(get_obj=False, n=batch_size)
+                env_state, action, _, _, _ = self.generate_random_episodes(get_obj=False, n=batch_size)
                 env_state = self.env_state_and_action_to_inputs(env_state, action)
                 # create inverted labels for the fake samples (because generator goal is to trick the discriminator)
                 # so our objective (label) is 1 and if discriminator says 1 we have an error of 0 and vice versa
                 real_labels = np.ones((batch_size, 1))
-                # update the generator via the discriminator's error
-                g_loss, _, _ = self.special_gan.train_on_batch(env_state, [real_labels, next_env_state])
+                # update the encoder via the discriminator's error
+                g_loss = self.special_gan.train_on_batch(env_state, real_labels)
 
                 """ Autoencoder training """
-                # this might result in the discriminator outperforming the generator depending on architecture
-                self.autoencoder.train_on_batch(env_state, [next_env_state, env_state]) if train_encoder else None
+                # this might result in the discriminator outperforming the encoder depending on architecture
+                # TODO: not working at the moment cause we need env_state and next_env_state from the dataset instead of
+                # being generated
+                # self.autoencoder.train_on_batch(env_state, [next_env_state, env_state]) if train_encoder else None
 
                 # summarize loss on this batch
                 print(
                     f">{i + 1}, {j + 1:0{len(str(steps_per_epoch))}d}/{steps_per_epoch}, d={d_loss:.3f}, g={g_loss:.3f}"
                 )
+            self.summarize_performance(i)
+
+    def summarize_performance(self, epoch, n=100):
+        env_state, action, _, _, _ = self.generate_random_episodes(get_obj=False, n=n)
+        pred = self.predict_next_env_state_and_latent_space(env_state, action)
+        next_env_state_pred = pred[:, : self.nr_valid_tiles]
+        # evaluate discriminator on real examples
+        _, acc_real = self.special_discriminator.evaluate(env_state, np.ones(shape=(n, 1)), verbose=0)
+        # evaluate discriminator on fake examples
+        _, acc_fake = self.special_discriminator.evaluate(next_env_state_pred, np.zeros(shape=(n, 1)), verbose=0)
+        # summarize discriminator performance
+        print(f">Accuracy real: {acc_real * 100:.0f}%%, fake: {acc_fake * 100:.0f}%%")
 
     def visualize_trained_autoencoder_to_file(self, state, n_samples=10, path="images/plots"):
         width = n_samples
