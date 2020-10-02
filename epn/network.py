@@ -172,14 +172,16 @@ class EntropyPropagationNetwork:
         # Build decoder side
         decoder_inputs = Input(shape=self.latent_dim + self.classification_dim, name="decoder_input")
         if self.weight_sharing:
+            # order seems to matter, however the inverse order seems to perform better
+            # might be because of the 'transpose_b=True' in DenseTranspose class => inverse order might be correct
             x = DenseTranspose(
-                encoder_to_latent_space, encoder_to_classification, activation=LeakyReLU(alpha=0.2), name="decoder_0"
+                [encoder_to_latent_space, encoder_to_classification], activation=LeakyReLU(alpha=0.2), name="decoder_0"
             )(decoder_inputs)
             for idx, encoder_layer in enumerate(reversed(encoder_layers)):
                 if idx == len(encoder_layers) - 1:
-                    x = DenseTranspose(encoder_layer, activation="sigmoid", name=f"decoder_{1 + idx}")(x)
+                    x = DenseTranspose([encoder_layer], activation="sigmoid", name=f"decoder_{1 + idx}")(x)
                 else:
-                    x = DenseTranspose(encoder_layer, activation=LeakyReLU(alpha=0.2), name=f"decoder_{1 + idx}")(x)
+                    x = DenseTranspose([encoder_layer], activation=LeakyReLU(alpha=0.2), name=f"decoder_{1 + idx}")(x)
         else:
             for idx, encoder_layer in enumerate(reversed(encoder_layers)):
                 if idx == 0:
