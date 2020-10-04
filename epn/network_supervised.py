@@ -1,11 +1,11 @@
+from typing import List, Optional
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.layers import Input, Dense, LeakyReLU, Flatten, concatenate, Dropout
+from tensorflow.keras.layers import Input, Dense, LeakyReLU, concatenate
 from tensorflow.keras.models import Model
-from tensorflow.keras.utils import to_categorical, plot_model
+from tensorflow.keras.utils import to_categorical
 from numpy.random import randint
 from numpy import concatenate, zeros, ones
 from epn import datasets
-from pathlib import Path
 from epn.helper import add_subplot, save_plot_as_image
 from epn.network import EPNetwork
 import tensorflow as tf
@@ -38,7 +38,6 @@ class EPNetworkSupervised(EPNetwork):
         classification_dim=10,
         discriminator_dims=None,
         autoencoder_loss=None,
-        graphviz_installed=False,
     ):
         """
         :param dataset: str
@@ -65,9 +64,6 @@ class EPNetworkSupervised(EPNetwork):
             the discriminator will and decoder are of the same size which is mostly good in an adversarial setting).
         :param autoencoder_loss: [str, str]
             This parameter allows to define the classification and reconstruction loss functions for the autoencoder.
-        :param graphviz_installed: bool
-            If graphviz is installed and this parameter set to true, images of the model architectures are generated
-            and saved under './images/architecture'
         """
         super().__init__(weight_sharing, encoder_dims, discriminator_dims)
 
@@ -91,6 +87,7 @@ class EPNetworkSupervised(EPNetwork):
 
         self.input_shape = self.x_train_norm.shape[1:]
 
+        # Build Autoencoder
         self.encoder, self.decoder, self.autoencoder = self.build_autoencoder(
             encoder_input_shape=self.x_train_norm.shape[1:],
             encoder_output_layers=[
@@ -101,56 +98,22 @@ class EPNetworkSupervised(EPNetwork):
         )
         self.autoencoder.compile(loss=self.autoencoder_loss, optimizer="adam", metrics=["accuracy"])
 
-        self.discriminator = self.build_discriminator()
+        # Build Discriminator
+        self.discriminator = self.build_discriminator(
+            input_shape=self.decoder.output_shape[1:],
+            output_layers=[
+                Dense(1, activation="sigmoid", name="real_or_fake"),
+                Dense(self.classification_dim, activation="softmax", name="classification"),
+            ],
+        )
         self.discriminator.compile(
             loss=["binary_crossentropy", "mean_squared_error"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"]
         )
 
-        # GAN model (decoder & discriminator) - For the GAN model we will only train the generator
+        # Build GAN model (decoder & discriminator) - For the GAN model we will only train the generator
         self.discriminator.trainable = False
-        self.gan = self.build_gan()
+        self.gan = self.build_gan(self.decoder, self.discriminator)
         self.gan.compile(loss="binary_crossentropy", optimizer=Adam(lr=0.0002, beta_1=0.5))
-
-        # only set graphviz_installed to true if you have it installed (see README)
-        self.save_model_architecture_images() if graphviz_installed else None
-
-    def build_discriminator(self, custom_input_shape=None, classification=True):
-        """Creates a discriminator model.
-
-        Leaky ReLU is recommended for Discriminator networks.
-        'Within the discriminator we found the leaky rectified activation to work well ...'
-            — Unsupervised Representation Learning with Deep Convolutional Generative Adversarial Networks, 2015.
-
-        :return: Discriminator model
-        """
-        if not custom_input_shape:
-            inputs = Input(shape=self.input_shape, name="discriminator_inputs")
-        else:
-            inputs = Input(shape=custom_input_shape, name="discriminator_inputs")
-
-        x = Flatten()(inputs)
-
-        for layer_dim in self.discriminator_dims:
-            x = Dense(layer_dim, activation=LeakyReLU(alpha=0.2))(x)
-            x = Dropout(0.3)(x)
-
-        real_or_fake = Dense(1, activation="sigmoid", name="real_or_fake")(x)
-        if classification:
-            classification = Dense(self.classification_dim, activation="softmax", name="classification")(x)
-            return Model(inputs, outputs=[real_or_fake, classification], name="discriminator")
-        else:
-            return Model(inputs, outputs=real_or_fake, name="discriminator")
-
-    def build_gan(self):
-        """Defines the combined decoder and discriminator model, for updating the decoder
-
-        :return:
-        """
-        # connect them
-        inputs = Input(shape=self.decoder.input_shape[1:], name="gan_inputs")
-        decoded = self.decoder(inputs)
-        discriminated = self.discriminator(decoded)
-        return Model(inputs, discriminated)
 
     def generate_latent_and_classification_points(self, n_samples):
         # generate random points in the latent space
@@ -271,20 +234,18 @@ class EPNetworkSupervised(EPNetwork):
         # Evaluates the autoencoder based on the test data
         return self.autoencoder.evaluate(self.x_test_norm, [self.y_test, self.x_test_norm], verbose=0)
 
-    def save_model_architecture_images(self, path="images/architecture"):
-        """Saves all EPN model architectures as PNGs into a defined sub folder.
-
-        :param path: str
-            Relative path from the root directory
-        :return:
-            None
-        """
-        Path(path).mkdir(parents=True, exist_ok=True)
-        plot_model(self.discriminator, f"{path}/discriminator_architecture.png", show_shapes=True, expand_nested=True)
-        plot_model(self.autoencoder, f"{path}/autoencoder_architecture.png", show_shapes=True, expand_nested=True)
-        plot_model(self.encoder, f"{path}/encoder_architecture.png", show_shapes=True, expand_nested=True)
-        plot_model(self.decoder, f"{path}/decoder_architecture.png", show_shapes=True, expand_nested=True)
-        plot_model(self.gan, f"{path}/gan_architecture.png", show_shapes=True, expand_nested=True)
+    def save_model_architecture_images(self, models: Optional[List[Model]] = None, path: str = "images/architecture"):
+        models = models if models is not None else []
+        models.extend(
+            [
+                self.encoder,
+                self.decoder,
+                self.autoencoder,
+                self.discriminator,
+                self.gan,
+            ]
+        )
+        super().save_model_architecture_images(models, path)
 
     def visualize_trained_autoencoder_to_file(self, state):
         self.save_reconstruction_plot_images(self.x_train_norm[10:20], state)

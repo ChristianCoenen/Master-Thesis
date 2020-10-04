@@ -1,14 +1,12 @@
+from typing import List, Optional
 from numpy.random import randint
 from epn.network import EPNetwork
 from epn.helper import add_subplot, save_plot_as_image
 from copy import deepcopy
 import tensorflow as tf
-from tensorflow.keras.utils import plot_model
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.layers import Input, Dense, LeakyReLU, Flatten, Reshape, Dropout
+from tensorflow.keras.layers import Input, Dense, LeakyReLU, concatenate
 from tensorflow.keras.models import Model
-from tensorflow.keras import layers
-from epn.custom_layers import DenseTranspose
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -16,17 +14,16 @@ import numpy as np
 class EPNetworkRL(EPNetwork):
     """
     A class implementing the Entropy Propagation Network architecture in an reinforcement learning setting:
-    Differences between EntropyPropagationNetworkRL and EntropyPropagationNetwork:
+    Differences between EPNetworkRL and EPNetworkSupervised:
 
     General:
     1. The environment on which the data was generated needs to be passed in order to visualize the reconstructions, ...
 
     Autoencoder:
-    1.
+    1. Encoder has more outputs (q_values, ...)
 
     GAN:
-    1. Instead of random latent spaces, random inputs (env_states) are generated
-    2. Instead of reconstructions, latent spaces are fed into the discriminator
+    1. Additional GAN Network (working with the encoder instead of the decoder)
     """
 
     def __init__(self, env, data, latent_dim, autoencoder_loss, **kwargs):
@@ -43,6 +40,7 @@ class EPNetworkRL(EPNetwork):
         self.autoencoder_loss = autoencoder_loss
         (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = data
 
+        # Build Autoencoder
         self.encoder, self.decoder, self.autoencoder = self.build_autoencoder(
             encoder_input_shape=self.nr_valid_tiles + self.env.action_space.n,
             encoder_output_layers=[
@@ -56,69 +54,47 @@ class EPNetworkRL(EPNetwork):
         )
         self.autoencoder.compile(loss=self.autoencoder_loss, optimizer="adam", metrics=["accuracy"])
 
-        # Create the special GAN network that works against the encoder instead of the decoder
-        self.special_discriminator = self.build_special_discriminator()
-        self.special_discriminator.compile(
-            loss=["binary_crossentropy"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"]
+        # Build an encoder and a decoder discriminator
+        self.dec_discriminator = self.build_discriminator(
+            input_shape=self.decoder.output_shape[1:],
+            output_layers=[Dense(1, activation="sigmoid", name="real_or_fake")],
         )
-        self.special_discriminator.trainable = False
-        self.special_gan = self.build_special_gan(self.encoder, self.special_discriminator)
-        self.special_gan.compile(loss="binary_crossentropy", optimizer=Adam(lr=0.0002, beta_1=0.5))
-
-        # TODO: I think this can be in a method or so, but overwriting super class method results in error
-        path = "images/architecture"
-        plot_model(
-            self.special_discriminator,
-            f"{path}/special_discriminator_architecture.png",
-            show_shapes=True,
-            expand_nested=True,
+        self.dec_discriminator.compile(
+            loss=["binary_crossentropy", "mean_squared_error"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"]
         )
-        plot_model(self.special_gan, f"{path}/special_gan_architecture.png", show_shapes=True, expand_nested=True)
 
-    def build_special_discriminator(self):
-        inputs = Input(shape=self.classification_dim + self.nr_valid_tiles, name="discriminator_inputs")
+        self.enc_discriminator = self.build_discriminator(
+            input_shape=2 * self.nr_valid_tiles + self.env.action_space.n + 1,
+            output_layers=[Dense(1, activation="sigmoid", name="real_or_fake")],
+        )
+        self.enc_discriminator.compile(loss=["binary_crossentropy"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"])
 
-        x = Flatten()(inputs)
+        # Prevent discriminator weight updates during GAN training
+        self.dec_discriminator.trainable = False
+        self.enc_discriminator.trainable = False
 
-        for layer_dim in self.discriminator_dims:
-            x = Dense(layer_dim, activation=LeakyReLU(alpha=0.2))(x)
-            x = Dropout(0.3)(x)
+        # Create the normal decoder GAN network that works against the decoder
+        self.dec_gan = self.build_gan(self.decoder, self.dec_discriminator)
+        self.dec_gan.compile(loss="binary_crossentropy", optimizer=Adam(lr=0.0002, beta_1=0.5))
 
-        real_or_fake = Dense(1, activation="sigmoid", name="real_or_fake")(x)
-        return Model(inputs, outputs=[real_or_fake], name="discriminator")
+        # Create the special encoder GAN network that works against the encoder instead of the decoder
+        self.enc_gan = self.build_special_gan(
+            self.encoder, self.enc_discriminator, ignored_layer_names=["q_values", "latent_space"]
+        )
+        self.enc_gan.compile(loss="binary_crossentropy", optimizer=Adam(lr=0.0002, beta_1=0.5))
 
-    def build_discriminator(self, custom_input_shape=None, classification=True):
-        # TODO: not properly implemented with inheritance at the moment (cause it's currently not needed here)
-        inputs = Input(shape=self.encoder.input_shape[1:], name="discriminator_inputs")
-
-        x = Flatten()(inputs)
-
-        for layer_dim in self.discriminator_dims:
-            x = Dense(layer_dim, activation=LeakyReLU(alpha=0.2))(x)
-            x = Dropout(0.3)(x)
-
-        real_or_fake = Dense(1, activation="sigmoid", name="real_or_fake")(x)
-        return Model(inputs, outputs=[real_or_fake], name="discriminator")
-
-    def build_special_gan(self, encoder, discriminator):
+    def build_special_gan(self, encoder, discriminator, ignored_layer_names: Optional[List[str]] = None) -> Model:
         inputs = Input(shape=self.encoder.input_shape[1:], name="gan_inputs")
         encoded = encoder(inputs)
-        # Use the classification outputs from the encoder + the input state in the GAN setting
-        d_inputs = layers.concatenate([encoded[:, : self.classification_dim], inputs[:, : self.nr_valid_tiles]])
-        discriminated = discriminator(d_inputs)
-        return Model(inputs, discriminated)
-
-    # define the combined generator and discriminator model, for updating the generator
-    def build_gan(self):
-        """Defines the combined decoder and discriminator model, for updating the decoder
-
-        :return:
-        """
-        # connect them
-        inputs = Input(shape=self.latent_dim + self.classification_dim + self.env.action_space.n, name="gan_inputs")
-        decoded = self.decoder(inputs)
-        discriminated = self.discriminator(decoded)
-        return Model(inputs, discriminated)
+        # Only use generated outputs as discriminator inputs that are not specified in 'ignored_layer_names'
+        discriminator_inputs = (
+            [output for output in encoded if output.name.split("/")[1] not in ignored_layer_names]
+            if ignored_layer_names
+            else encoded
+        )
+        discriminator_inputs.append(inputs[:, : self.nr_valid_tiles])
+        discriminated = discriminator(concatenate(discriminator_inputs))
+        return Model(inputs, discriminated, name="gan_enc")
 
     def _generate_random_episode(self, get_obj):
         """Generates a random episode consisting of (env_state, action, reward, next_env_state, done).
@@ -193,7 +169,7 @@ class EPNetworkRL(EPNetwork):
                 # One-sided label smoothing (not sure if it makes sense in rl setting)
                 # labels[:half_batch] = 0.9
                 # update discriminator model weights
-                d_loss, _ = self.special_discriminator.train_on_batch(x_discriminator, labels)
+                d_loss, _ = self.enc_discriminator.train_on_batch(x_discriminator, labels)
 
                 """ Generator training (discriminator weights deactivated!) """
                 # prepare points in latent space as input for the generator
@@ -203,7 +179,7 @@ class EPNetworkRL(EPNetwork):
                 # so our objective (label) is 1 and if discriminator says 1 we have an error of 0 and vice versa
                 real_labels = np.ones((batch_size, 1))
                 # update the encoder via the discriminator's error
-                g_loss = self.special_gan.train_on_batch(env_state, real_labels)
+                g_loss = self.enc_gan.train_on_batch(env_state, real_labels)
 
                 """ Autoencoder training """
                 # this might result in the discriminator outperforming the encoder depending on architecture
@@ -222,11 +198,26 @@ class EPNetworkRL(EPNetwork):
         pred = self.predict_next_env_state_and_latent_space(env_state, action)
         next_env_state_pred = pred[:, : self.nr_valid_tiles]
         # evaluate discriminator on real examples
-        _, acc_real = self.special_discriminator.evaluate(env_state, np.ones(shape=(n, 1)), verbose=0)
+        _, acc_real = self.enc_discriminator.evaluate(env_state, np.ones(shape=(n, 1)), verbose=0)
         # evaluate discriminator on fake examples
-        _, acc_fake = self.special_discriminator.evaluate(next_env_state_pred, np.zeros(shape=(n, 1)), verbose=0)
+        _, acc_fake = self.enc_discriminator.evaluate(next_env_state_pred, np.zeros(shape=(n, 1)), verbose=0)
         # summarize discriminator performance
         print(f">Accuracy real: {acc_real * 100:.0f}%%, fake: {acc_fake * 100:.0f}%%")
+
+    def save_model_architecture_images(self, models: Optional[List[Model]] = None, path: str = "images/architecture"):
+        models = models if models is not None else []
+        models.extend(
+            [
+                self.encoder,
+                self.decoder,
+                self.autoencoder,
+                self.dec_discriminator,
+                self.enc_discriminator,
+                # self.dec_gan,
+                self.enc_gan,
+            ]
+        )
+        super().save_model_architecture_images(models, path)
 
     def visualize_trained_autoencoder_to_file(self, state, n_samples=10, path="images/plots"):
         width = n_samples
