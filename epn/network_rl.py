@@ -1,18 +1,19 @@
 from numpy.random import randint
-from epn.network import EntropyPropagationNetwork
+from epn.network import EPNetwork
 from epn.helper import add_subplot, save_plot_as_image
 from copy import deepcopy
 import tensorflow as tf
 from tensorflow.keras.utils import plot_model
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.layers import Input
+from tensorflow.keras.layers import Input, Dense, LeakyReLU, Flatten, Reshape, Dropout
 from tensorflow.keras.models import Model
-
+from tensorflow.keras import layers
+from epn.custom_layers import DenseTranspose
 import matplotlib.pyplot as plt
 import numpy as np
 
 
-class EntropyPropagationNetworkRL(EntropyPropagationNetwork):
+class EPNetworkRL(EPNetwork):
     """
     A class implementing the Entropy Propagation Network architecture in an reinforcement learning setting:
     Differences between EntropyPropagationNetworkRL and EntropyPropagationNetwork:
@@ -28,24 +29,35 @@ class EntropyPropagationNetworkRL(EntropyPropagationNetwork):
     2. Instead of reconstructions, latent spaces are fed into the discriminator
     """
 
-    def __init__(self, env, **kwargs):
+    def __init__(self, env, data, latent_dim, autoencoder_loss, **kwargs):
         """
         :param env: MazeEnv
             MazeEnv object initialized with the same maze & config that was used to generate the dataset.
         """
+        super().__init__(**kwargs)
         self.nr_valid_tiles = np.count_nonzero(env.maze.to_impassable() == 0)
         self.nr_tiles = env.maze.size[0] * env.maze.size[1]
         self.env = env
-        super().__init__(
-            dataset=kwargs.get("dataset", "maze_memories"),
-            classification_dim=self.nr_valid_tiles,
-            **kwargs,
+        self.classification_dim = self.nr_valid_tiles + self.env.action_space.n + 1
+        self.latent_dim = latent_dim
+        self.autoencoder_loss = autoencoder_loss
+        (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = data
+
+        self.encoder, self.decoder, self.autoencoder = self.build_autoencoder(
+            encoder_input_shape=self.nr_valid_tiles + self.env.action_space.n,
+            encoder_output_layers=[
+                Dense(self.nr_valid_tiles, activation="softmax", name=f"expected_next_state"),
+                Dense(1, activation="tanh", name=f"expected_reward"),
+                Dense(self.env.action_space.n, activation="softmax", name=f"reconstructed_action"),
+                Dense(self.env.action_space.n, name=f"q_values"),
+                Dense(self.latent_dim, activation=LeakyReLU(alpha=0.2), name="latent_space"),
+            ],
+            ae_ignored_output_layer_names=["latent_space"],
         )
+        self.autoencoder.compile(loss=self.autoencoder_loss, optimizer="adam", metrics=["accuracy"])
 
         # Create the special GAN network that works against the encoder instead of the decoder
-        self.special_discriminator = self.build_discriminator(
-            custom_input_shape=self.classification_dim, classification=False
-        )
+        self.special_discriminator = self.build_special_discriminator()
         self.special_discriminator.compile(
             loss=["binary_crossentropy"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"]
         )
@@ -63,11 +75,49 @@ class EntropyPropagationNetworkRL(EntropyPropagationNetwork):
         )
         plot_model(self.special_gan, f"{path}/special_gan_architecture.png", show_shapes=True, expand_nested=True)
 
+    def build_special_discriminator(self):
+        inputs = Input(shape=self.classification_dim + self.nr_valid_tiles, name="discriminator_inputs")
+
+        x = Flatten()(inputs)
+
+        for layer_dim in self.discriminator_dims:
+            x = Dense(layer_dim, activation=LeakyReLU(alpha=0.2))(x)
+            x = Dropout(0.3)(x)
+
+        real_or_fake = Dense(1, activation="sigmoid", name="real_or_fake")(x)
+        return Model(inputs, outputs=[real_or_fake], name="discriminator")
+
+    def build_discriminator(self, custom_input_shape=None, classification=True):
+        # TODO: not properly implemented with inheritance at the moment (cause it's currently not needed here)
+        inputs = Input(shape=self.encoder.input_shape[1:], name="discriminator_inputs")
+
+        x = Flatten()(inputs)
+
+        for layer_dim in self.discriminator_dims:
+            x = Dense(layer_dim, activation=LeakyReLU(alpha=0.2))(x)
+            x = Dropout(0.3)(x)
+
+        real_or_fake = Dense(1, activation="sigmoid", name="real_or_fake")(x)
+        return Model(inputs, outputs=[real_or_fake], name="discriminator")
+
     def build_special_gan(self, encoder, discriminator):
-        inputs = Input(shape=self.classification_dim + self.env.action_space.n, name="gan_inputs")
+        inputs = Input(shape=self.encoder.input_shape[1:], name="gan_inputs")
         encoded = encoder(inputs)
-        # Only use the classification outputs from the encoder in the GAN setting
-        discriminated = discriminator(encoded[:, : self.classification_dim])
+        # Use the classification outputs from the encoder + the input state in the GAN setting
+        d_inputs = layers.concatenate([encoded[:, : self.classification_dim], inputs[:, : self.nr_valid_tiles]])
+        discriminated = discriminator(d_inputs)
+        return Model(inputs, discriminated)
+
+    # define the combined generator and discriminator model, for updating the generator
+    def build_gan(self):
+        """Defines the combined decoder and discriminator model, for updating the decoder
+
+        :return:
+        """
+        # connect them
+        inputs = Input(shape=self.latent_dim + self.classification_dim + self.env.action_space.n, name="gan_inputs")
+        decoded = self.decoder(inputs)
+        discriminated = self.discriminator(decoded)
         return Model(inputs, discriminated)
 
     def _generate_random_episode(self, get_obj):
@@ -109,6 +159,11 @@ class EntropyPropagationNetworkRL(EntropyPropagationNetwork):
 
         for i in range(n):
             env_state[i], action[i], reward[i], next_env_state[i], done[i] = self._generate_random_episode(get_obj)
+        return env_state, action, reward, next_env_state, done
+
+    def get_random_episodes_from_dataset(self, n):
+        ix = randint(0, self.x_train_norm.shape[0], n)
+        env_state, action, reward, next_env_state, done = self.x_train_norm[ix]
         return env_state, action, reward, next_env_state, done
 
     def predict_next_env_state_and_latent_space(self, env_state, action):

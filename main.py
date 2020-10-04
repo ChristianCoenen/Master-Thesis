@@ -1,9 +1,10 @@
-from epn.network import EntropyPropagationNetwork
+from epn.network_supervised import EPNetworkSupervised
 
 # Configure and train the Entropy Propagation Network
-epn = EntropyPropagationNetwork(
+epn = EPNetworkSupervised(
     dataset="mnist",
     encoder_dims=[1024, 512, 256],
+    discriminator_dims=[1024, 512, 256],
     latent_dim=50,
     classification_dim=10,
     weight_sharing=True,
