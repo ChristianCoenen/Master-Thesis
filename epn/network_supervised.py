@@ -1,11 +1,10 @@
-from typing import List, Optional
+from typing import List, Tuple, Optional
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.layers import Dense, LeakyReLU, concatenate
 from tensorflow.keras.models import Model
 from tensorflow.keras.utils import to_categorical
 from numpy.random import randint
 from numpy import concatenate, zeros, ones
-from epn import datasets
 from epn.helper import add_subplot, save_plot_as_image
 from epn.network import EPNetwork
 import tensorflow as tf
@@ -26,59 +25,35 @@ class EPNetworkSupervised(EPNetwork):
     Note that the Decoder can also be referenced as Generator when generating fake samples.
     """
 
-    # TODO: remove default arguments
     def __init__(
         self,
-        dataset="mnist",
-        dataset_path=None,
-        shuffle_data=False,
-        weight_sharing=True,
-        encoder_dims=None,
-        latent_dim=40,
-        discriminator_dims=None,
-        autoencoder_loss=None,
+        data: List[Tuple[List[np.ndarray], Tuple[List[np.ndarray]]]],
+        latent_dim: int,
+        autoencoder_loss: List[str],
+        weight_sharing: bool,
+        encoder_dims: List[int],
+        discriminator_dims: List[int],
     ):
         """
-        :param dataset: str
-            Selects the underlying dataset.
-            Valid values: ['mnist', 'fashion_mnist', 'cifar10', 'maze_memories']
-        :param dataset_path: str
-            Path to the dataset that is used. Currently only required when using 'maze_memories' as dataset.
-        :param shuffle_data: bool
-            Whether to shuffle the dataset when requesting it from the datasets class.
-            Currently only used when using 'maze_memories' as dataset.
-        :param weight_sharing: bool
-            If set to true, the decoder will used the weights created on the encoder side using DenseTranspose layers
-        :param encoder_dims: [int]
-            Each value (x) represents one hidden encoder layer with x neurons.
-        :param latent_dim: int
+        :param data:
+            Data that is trained on. Has to be a 4-tuple consisting of numpy arrays with shape (n_samples x data_shape)
+        :param latent_dim:
             Number of latent space neurons (bottleneck layer in the Autoencoder)
-        :param discriminator_dims: [int]
+        :param autoencoder_loss:
+            This parameter allows to define the classification and reconstruction loss functions for the autoencoder.
+        :param weight_sharing:
+            If set to true, the decoder will used the weights created on the encoder side using DenseTranspose layers
+        :param encoder_dims:
+            Each value (x) represents one hidden encoder layer with x neurons.
+        :param discriminator_dims:
             Each value (x) represents one hidden layer with x neurons. By default, the discriminator network will
             mimic the structure of the hidden encoder layers (since the generator has the same structure as the encoder,
             the discriminator will and decoder are of the same size which is mostly good in an adversarial setting).
-        :param autoencoder_loss: [str, str]
-            This parameter allows to define the classification and reconstruction loss functions for the autoencoder.
         """
         super().__init__(weight_sharing, encoder_dims, discriminator_dims)
-
+        (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = data
         self.latent_dim = latent_dim
-        self.dataset = dataset
         self.autoencoder_loss = autoencoder_loss
-
-        if dataset == "mnist":
-            (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_mnist()
-        elif dataset == "fashion_mnist":
-            (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_mnist(fashion=True)
-        elif dataset == "cifar10":
-            (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_cifar()
-        elif dataset == "maze_memories":
-            (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_maze_memories(
-                dataset_path, shuffle=shuffle_data
-            )
-        else:
-            raise ValueError("Unknown dataset!")
-
         self.classification_dim = len(self.y_train[1])
 
         # Build Autoencoder

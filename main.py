@@ -1,13 +1,15 @@
 from epn.network_supervised import EPNetworkSupervised
+from epn.datasets import *
 
+data = get_mnist(fashion=False)
 # Configure and train the Entropy Propagation Network
 epn = EPNetworkSupervised(
-    dataset="mnist",
+    data=data,
+    latent_dim=50,
+    autoencoder_loss=["mean_squared_error", "binary_crossentropy"],
+    weight_sharing=True,
     encoder_dims=[1024, 512, 256],
     discriminator_dims=[1024, 512, 256],
-    latent_dim=50,
-    weight_sharing=True,
-    autoencoder_loss=["mean_squared_error", "binary_crossentropy"],
 )
 # Only run the following line if you have graphviz installed, otherwise make sure to remove it or comment it out
 epn.save_model_architecture_images()
