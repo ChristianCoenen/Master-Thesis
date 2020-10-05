@@ -47,7 +47,6 @@ class EPNetworkRL(EPNetwork):
                 Dense(self.nr_valid_tiles, activation="softmax", name=f"expected_next_state"),
                 Dense(1, activation="tanh", name=f"expected_reward"),
                 Dense(self.env.action_space.n, activation="softmax", name=f"reconstructed_action"),
-                Dense(self.env.action_space.n, name=f"q_values"),
                 Dense(self.latent_dim, activation=LeakyReLU(alpha=0.2), name="latent_space"),
             ],
             ae_ignored_output_layer_names=["latent_space"],
@@ -156,7 +155,16 @@ class EPNetworkRL(EPNetwork):
         inputs = np.concatenate((env_state, action_one_hot), axis=1)
         return inputs
 
-    def train(self, epochs=5, batch_size=2, steps_per_epoch=100, train_encoder=True):
+    def train_autoencoder(self, **kwargs):
+        state = np.array([*self.x_train_norm[:, 0]])
+        action = np.array([*self.x_train_norm[:, 1]])
+        inputs = np.concatenate((state, action), axis=1)
+        expected_next_state = np.array([*self.y_train[:, 1]])
+        expected_reward = np.array([*self.y_train[:, 0]]).reshape(-1, 1)
+
+        self.autoencoder.fit(inputs, [expected_next_state, expected_reward, action, inputs], **kwargs)
+
+    def train(self, epochs: int, batch_size: int, steps_per_epoch: int, train_encoder: bool):
         half_batch = int(batch_size / 2)
         # manually enumerate epochs
         for i in range(epochs):
@@ -208,7 +216,9 @@ class EPNetworkRL(EPNetwork):
         # summarize discriminator performance
         print(f">Accuracy real: {acc_real * 100:.0f}%%, fake: {acc_fake * 100:.0f}%%")
 
-    def save_model_architecture_images(self, models: Optional[List[Model]] = None, path: str = "images/architecture"):
+    def save_model_architecture_images(
+        self, models: Optional[List[Model]] = None, path: str = "images/epn_rl/architecture"
+    ):
         models = models if models is not None else []
         models.extend(
             [
@@ -223,14 +233,16 @@ class EPNetworkRL(EPNetwork):
         )
         super().save_model_architecture_images(models, path)
 
-    def visualize_trained_autoencoder_to_file(self, state, n_samples=10, path="images/plots"):
+    def visualize_autoencoder_predictions_to_file(self, state, n_samples=10, path="images/epn_rl/plots"):
         width = n_samples
-        height = 4
+        height = 5
         plt.figure(figsize=(width, height))
         for idx in range(n_samples):
             env_state_obj, action, _, _, _ = self._generate_random_episode(get_obj=True)
-            inputs = self.env_state_and_action_to_inputs(env_state_obj.to_valid_obs(), np.array(action).reshape(1, -1))
-            [pred_next_env_state, reconstruction] = self.autoencoder.predict(inputs)
+            inputs = self.env_state_and_action_to_inputs(
+                env_state_obj.to_valid_obs().reshape(1, -1), np.array(action).reshape(1, -1)
+            )
+            [pred_next_env_state, pred_reward, reconstructed_action, reconstruction] = self.autoencoder.predict(inputs)
 
             # Sampled maze state + action
             add_subplot(image=env_state_obj.to_rgb(), n_cols=height, n_rows=width, index=1 + idx)
@@ -238,16 +250,26 @@ class EPNetworkRL(EPNetwork):
 
             # Sampled maze state + action with next state prediction values
             add_subplot(image=env_state_obj.to_rgb(), n_cols=height, n_rows=width, index=1 + idx + n_samples)
+            plt.annotate(round(float(pred_reward), 2), xy=(0.25, -0.5), fontsize="small")
             annotate_maze(pred_next_env_state[0], env_state_obj)
 
-            # Reconstructed maze state + action
-            add_subplot(image=env_state_obj.to_rgb(), n_cols=height, n_rows=width, index=1 + idx + 2 * n_samples)
+            # Encoder Action reconstructions
+            annotate_action_values(
+                n_cols=height,
+                n_rows=width,
+                index=1 + idx + 2 * n_samples,
+                action_names=self.env.motions._fields,
+                values=reconstructed_action[0],
+            )
+
+            # Reconstructed maze state + action (decoder)
+            add_subplot(image=env_state_obj.to_rgb(), n_cols=height, n_rows=width, index=1 + idx + 3 * n_samples)
             annotate_maze(reconstruction[0][: -self.env.action_space.n], env_state_obj)
             actions_one_hot = reconstruction[0][-self.env.action_space.n :]
             annotate_action_values(
                 n_cols=height,
                 n_rows=width,
-                index=1 + idx + 3 * n_samples,
+                index=1 + idx + 4 * n_samples,
                 action_names=self.env.motions._fields,
                 values=actions_one_hot,
             )
@@ -275,4 +297,4 @@ def annotate_action_values(n_cols, n_rows, index, action_names, values):
     subplot = plt.subplot(n_cols, n_rows, index)
     subplot.axis("off")
     for idx in range(len(action_names)):
-        subplot.text(0, 0.5 - idx / 4, f"{action_names[idx]}: {str(np.round(values[idx], 2))}", fontsize="x-small")
+        subplot.text(0, 0.75 - idx / 4, f"{action_names[idx]}: {str(np.round(values[idx], 2))}", fontsize="x-small")
