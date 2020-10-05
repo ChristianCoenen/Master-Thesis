@@ -1,3 +1,4 @@
+import abc
 from typing import List, Tuple, Union, Optional
 from tensorflow.keras.layers import Layer, Input, Flatten, Dense, LeakyReLU, concatenate, Reshape, Dropout
 from tensorflow.keras.models import Model
@@ -146,10 +147,12 @@ class EPNetwork:
         discriminated = discriminator(discriminator_inputs)
         return Model(inputs, discriminated, name=model_name)
 
-    def train_autoencoder(self):
+    @abc.abstractmethod
+    def train_autoencoder(self, **kwargs):
         pass
 
-    def train(self):
+    @abc.abstractmethod
+    def train(self, epochs: int, batch_size: int, steps_per_epoch: int, train_encoder: bool):
         pass
 
     def save_model_architecture_images(self, models: List[Model], path: str):
