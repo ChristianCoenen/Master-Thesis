@@ -58,6 +58,7 @@ class EPNetworkRL(EPNetwork):
         self.dec_discriminator = self.build_discriminator(
             input_shape=self.decoder.output_shape[1:],
             output_layers=[Dense(1, activation="sigmoid", name="real_or_fake")],
+            model_name="dec_discriminator",
         )
         self.dec_discriminator.compile(
             loss=["binary_crossentropy", "mean_squared_error"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"]
@@ -66,6 +67,7 @@ class EPNetworkRL(EPNetwork):
         self.enc_discriminator = self.build_discriminator(
             input_shape=2 * self.nr_valid_tiles + self.env.action_space.n + 1,
             output_layers=[Dense(1, activation="sigmoid", name="real_or_fake")],
+            model_name="enc_discriminator",
         )
         self.enc_discriminator.compile(loss=["binary_crossentropy"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"])
 
@@ -74,16 +76,18 @@ class EPNetworkRL(EPNetwork):
         self.enc_discriminator.trainable = False
 
         # Create the normal decoder GAN network that works against the decoder
-        self.dec_gan = self.build_gan(self.decoder, self.dec_discriminator)
+        self.dec_gan = self.build_gan(self.decoder, self.dec_discriminator, model_name="dec_gan")
         self.dec_gan.compile(loss="binary_crossentropy", optimizer=Adam(lr=0.0002, beta_1=0.5))
 
         # Create the special encoder GAN network that works against the encoder instead of the decoder
-        self.enc_gan = self.build_special_gan(
-            self.encoder, self.enc_discriminator, ignored_layer_names=["q_values", "latent_space"]
+        self.enc_gan = self.build_enc_gan(
+            self.encoder,
+            self.enc_discriminator,
+            ignored_layer_names=["q_values", "latent_space"],
         )
         self.enc_gan.compile(loss="binary_crossentropy", optimizer=Adam(lr=0.0002, beta_1=0.5))
 
-    def build_special_gan(self, encoder, discriminator, ignored_layer_names: Optional[List[str]] = None) -> Model:
+    def build_enc_gan(self, encoder, discriminator, ignored_layer_names: Optional[List[str]] = None) -> Model:
         inputs = Input(shape=self.encoder.input_shape[1:], name="gan_inputs")
         encoded = encoder(inputs)
         # Only use generated outputs as discriminator inputs that are not specified in 'ignored_layer_names'
@@ -94,7 +98,7 @@ class EPNetworkRL(EPNetwork):
         )
         discriminator_inputs.append(inputs[:, : self.nr_valid_tiles])
         discriminated = discriminator(concatenate(discriminator_inputs))
-        return Model(inputs, discriminated, name="gan_enc")
+        return Model(inputs, discriminated, name="enc_gan")
 
     def _generate_random_episode(self, get_obj):
         """Generates a random episode consisting of (env_state, action, reward, next_env_state, done).
@@ -213,7 +217,7 @@ class EPNetworkRL(EPNetwork):
                 self.autoencoder,
                 self.dec_discriminator,
                 self.enc_discriminator,
-                # self.dec_gan,
+                self.dec_gan,
                 self.enc_gan,
             ]
         )

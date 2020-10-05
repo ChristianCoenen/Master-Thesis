@@ -12,7 +12,12 @@ class EPNetwork:
         self.encoder_dims = encoder_dims
         self.discriminator_dims = discriminator_dims
 
-    def _build_encoder(self, input_shape: Union[Tuple[int, ...], int], output_layers: List[Layer]) -> Model:
+    def _build_encoder(
+        self,
+        input_shape: Union[Tuple[int, ...], int],
+        output_layers: List[Layer],
+        model_name: Optional[str] = "encoder",
+    ) -> Model:
         """This class creates an encoder model with x encoder layers and y output layers."""
         # Define encoder layers
         encoder_layers = []
@@ -28,9 +33,13 @@ class EPNetwork:
         # Create an output layer based on the last encoder layer for each passed layer
         built_output_layers = [output_layer(x) for output_layer in output_layers]
 
-        return Model(encoder_inputs, outputs=built_output_layers, name="encoder")
+        return Model(encoder_inputs, outputs=built_output_layers, name=model_name)
 
-    def _build_decoder(self, encoder: Model) -> Model:
+    def _build_decoder(
+        self,
+        encoder: Model,
+        model_name: Optional[str] = "decoder",
+    ) -> Model:
         """This class creates an decoder model that clones the encoder architecture."""
         hidden_encoder_layers = [
             layer for layer in encoder.layers if layer.name not in encoder.output_names and hasattr(layer, "kernel")
@@ -62,13 +71,14 @@ class EPNetwork:
                 )(x)
 
         outputs = Reshape(encoder.input_shape[1:])(x) if len(encoder.input_shape[1:]) > 1 else x
-        return Model(decoder_inputs, outputs=outputs, name="decoder")
+        return Model(decoder_inputs, outputs=outputs, name=model_name)
 
     def build_autoencoder(
         self,
         encoder_input_shape: Union[Tuple[int, ...], int],
         encoder_output_layers: List[Layer],
         ae_ignored_output_layer_names: Optional[List[str]] = None,
+        model_name: Optional[str] = "autoencoder",
     ) -> Tuple[Model, Model, Model]:
         # Build autoencoder
         encoder = self._build_encoder(encoder_input_shape, encoder_output_layers)
@@ -85,10 +95,15 @@ class EPNetwork:
             if ae_ignored_output_layer_names
             else encoded
         )
-        autoencoder = Model(encoder.input, outputs=[*autoencoder_outputs, decoded], name="autoencoder")
+        autoencoder = Model(encoder.input, outputs=[*autoencoder_outputs, decoded], name=model_name)
         return encoder, decoder, autoencoder
 
-    def build_discriminator(self, input_shape: Union[Tuple[int, ...], int], output_layers: List[Layer]):
+    def build_discriminator(
+        self,
+        input_shape: Union[Tuple[int, ...], int],
+        output_layers: List[Layer],
+        model_name: Optional[str] = "discriminator",
+    ):
         """Creates a discriminator model.
 
         Leaky ReLU is recommended for Discriminator networks.
@@ -107,10 +122,14 @@ class EPNetwork:
         # Create an output layer based on the last encoder layer for each passed layer
         built_output_layers = [output_layer(x) for output_layer in output_layers]
 
-        return Model(inputs, outputs=built_output_layers, name="discriminator")
+        return Model(inputs, outputs=built_output_layers, name=model_name)
 
     def build_gan(
-        self, generator: Model, discriminator: Model, ignored_layer_names: Optional[List[str]] = None
+        self,
+        generator: Model,
+        discriminator: Model,
+        ignored_layer_names: Optional[List[str]] = None,
+        model_name: Optional[str] = "gan",
     ) -> Model:
         """Defines a GAN consisting of a generator and a discriminator model. GAN is used to train the generator.
 
@@ -125,7 +144,7 @@ class EPNetwork:
             else generated
         )
         discriminated = discriminator(discriminator_inputs)
-        return Model(inputs, discriminated, name="gan")
+        return Model(inputs, discriminated, name=model_name)
 
     def train_autoencoder(self):
         pass
