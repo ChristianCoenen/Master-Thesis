@@ -1,6 +1,6 @@
 from typing import List, Optional
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.layers import Input, Dense, LeakyReLU, concatenate
+from tensorflow.keras.layers import Dense, LeakyReLU, concatenate
 from tensorflow.keras.models import Model
 from tensorflow.keras.utils import to_categorical
 from numpy.random import randint
@@ -35,7 +35,6 @@ class EPNetworkSupervised(EPNetwork):
         weight_sharing=True,
         encoder_dims=None,
         latent_dim=40,
-        classification_dim=10,
         discriminator_dims=None,
         autoencoder_loss=None,
     ):
@@ -54,10 +53,6 @@ class EPNetworkSupervised(EPNetwork):
             Each value (x) represents one hidden encoder layer with x neurons.
         :param latent_dim: int
             Number of latent space neurons (bottleneck layer in the Autoencoder)
-        :param classification_dim: int
-            Output neurons to classify the inputs based on their label
-            Needs to be of same dim as the number of output labels.
-            Is not automatically generated based on dataset, because it might be variable for Reinforcement Learning
         :param discriminator_dims: [int]
             Each value (x) represents one hidden layer with x neurons. By default, the discriminator network will
             mimic the structure of the hidden encoder layers (since the generator has the same structure as the encoder,
@@ -68,7 +63,6 @@ class EPNetworkSupervised(EPNetwork):
         super().__init__(weight_sharing, encoder_dims, discriminator_dims)
 
         self.latent_dim = latent_dim
-        self.classification_dim = classification_dim
         self.dataset = dataset
         self.autoencoder_loss = autoencoder_loss
 
@@ -85,7 +79,7 @@ class EPNetworkSupervised(EPNetwork):
         else:
             raise ValueError("Unknown dataset!")
 
-        self.input_shape = self.x_train_norm.shape[1:]
+        self.classification_dim = len(self.y_train[1])
 
         # Build Autoencoder
         self.encoder, self.decoder, self.autoencoder = self.build_autoencoder(

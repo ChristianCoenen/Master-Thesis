@@ -6,7 +6,6 @@ epn = EPNetworkSupervised(
     encoder_dims=[1024, 512, 256],
     discriminator_dims=[1024, 512, 256],
     latent_dim=50,
-    classification_dim=10,
     weight_sharing=True,
     autoencoder_loss=["mean_squared_error", "binary_crossentropy"],
 )
