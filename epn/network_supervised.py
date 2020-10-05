@@ -130,12 +130,9 @@ class EPNetworkSupervised(EPNetwork):
         return x, y, labels
 
     def train_autoencoder(self, **kwargs):
-        # TODO: method name is not optimal (trained)
-        self.visualize_trained_autoencoder_to_file(state="pre_autoencoder_training")
         self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm], **kwargs)
-        self.visualize_trained_autoencoder_to_file(state="post_autoencoder_training")
 
-    def train(self, epochs=5, batch_size=32, steps_per_epoch=100, train_encoder=True):
+    def train(self, epochs: int, batch_size: int, steps_per_epoch: int, train_encoder: bool):
         half_batch = int(batch_size / 2)
 
         # manually enumerate epochs
@@ -203,7 +200,9 @@ class EPNetworkSupervised(EPNetwork):
         # Evaluates the autoencoder based on the test data
         return self.autoencoder.evaluate(self.x_test_norm, [self.y_test, self.x_test_norm], verbose=0)
 
-    def save_model_architecture_images(self, models: Optional[List[Model]] = None, path: str = "images/architecture"):
+    def save_model_architecture_images(
+        self, models: Optional[List[Model]] = None, path: str = "images/epn_supervised/architecture"
+    ):
         models = models if models is not None else []
         models.extend(
             [
@@ -216,11 +215,11 @@ class EPNetworkSupervised(EPNetwork):
         )
         super().save_model_architecture_images(models, path)
 
-    def visualize_trained_autoencoder_to_file(self, state):
+    def visualize_autoencoder_predictions_to_file(self, state):
         self.save_reconstruction_plot_images(self.x_train_norm[10:20], state)
         self.save_fake_sample_plot_images()
 
-    def save_reconstruction_plot_images(self, samples, state, path="images/plots"):
+    def save_reconstruction_plot_images(self, samples, state, path="images/epn_supervised/plots"):
         """Pushes x samples through the autoencoder to generate & visualize reconstructions
 
         :param samples:
@@ -248,7 +247,9 @@ class EPNetworkSupervised(EPNetwork):
 
         save_plot_as_image(path=path, filename=state)
 
-    def save_fake_sample_plot_images(self, x_fake=None, labels=None, epoch=-1, n_samples=100, path="images/plots"):
+    def save_fake_sample_plot_images(
+        self, x_fake=None, labels=None, epoch=-1, n_samples=100, path="images/epn_supervised/plots"
+    ):
         """Create and save a plot of generated images (reversed grayscale)
 
             Useful to show if the generator is able to generate real looking images from random points.
