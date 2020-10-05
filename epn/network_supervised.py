@@ -275,7 +275,7 @@ class EPNetworkSupervised(EPNetwork):
                 index=1 + n_samples + image_index,
             )
             # label
-            plot_obj.annotate(str(np.argmax(reconstructions[1][image_index])), xy=(0, 0))
+            plot_obj.annotate(str(np.argmax(reconstructions[0][image_index])), xy=(0, 0))
 
         save_plot_as_image(path=path, filename=state)
 
