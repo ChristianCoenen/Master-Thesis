@@ -99,6 +99,105 @@ class EPNetworkRL(EPNetwork):
         discriminated = discriminator(concatenate(discriminator_inputs))
         return Model(inputs, discriminated, name="enc_gan")
 
+    def train_autoencoder(self, **kwargs):
+        env_state = np.array([*self.x_train_norm[:, 0]])
+        action = np.array([*self.x_train_norm[:, 1]])
+        inputs = np.concatenate((env_state, action), axis=1)
+        next_env_state = np.array([*self.y_train[:, 1]])
+        reward = np.array([*self.y_train[:, 0]]).reshape(-1, 1)
+
+        self.autoencoder.fit(inputs, [next_env_state, reward, action, inputs], **kwargs)
+
+    def get_random_episodes_from_dataset(self, n):
+        ix = randint(0, self.x_train_norm.shape[0], n)
+
+        env_state = np.array([*self.x_train_norm[ix, 0]])
+        action = np.array([*self.x_train_norm[ix, 1]])
+        next_env_state = np.array([*self.y_train[ix, 1]])
+        reward = np.array([*self.y_train[ix, 0]]).reshape(-1, 1)
+        done = np.array([*self.y_train[ix, 2]]).reshape(-1, 1)
+
+        return env_state, action, reward, next_env_state, done
+
+    def train(self, epochs: int, batch_size: int, steps_per_epoch: int, train_encoder: bool):
+        half_batch = int(batch_size / 2)
+        # manually enumerate epochs
+        for i in range(epochs):
+            # enumerate batches over the training set
+            for j in range(steps_per_epoch):
+                """ Discriminator training """
+                # create training set for the discriminator
+                env_state, action, reward, next_env_state, _ = self.get_random_episodes_from_dataset(n=half_batch)
+                inputs = np.concatenate((env_state, action), axis=1)
+                pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict(inputs)
+                real_labels, fake_labels = (np.ones(shape=(half_batch, 1)), np.zeros(shape=(half_batch, 1)))
+                real_inputs = np.concatenate((env_state, reward, action, next_env_state), axis=1)
+                fake_inputs = np.concatenate(
+                    (env_state, pred_reward, reconstructed_action, pred_next_env_state), axis=1
+                )
+                x_discriminator = np.vstack((real_inputs, fake_inputs))
+                labels = np.vstack((real_labels, fake_labels))
+                # One-sided label smoothing (not sure if it makes sense in rl setting)
+                # labels[:half_batch] = 0.9
+                # update discriminator model weights
+                d_loss, _ = self.enc_discriminator.train_on_batch(x_discriminator, labels)
+
+                """ Autoencoder training """
+                # this might result in the discriminator outperforming the encoder depending on architecture
+                if train_encoder:
+                    self.autoencoder.train_on_batch(inputs, [next_env_state, reward, action, inputs])
+
+                """ Generator training (discriminator weights deactivated!) """
+                # prepare points in latent space as input for the generator
+                env_state, action, _, _, _ = self.generate_random_episodes(get_obj=False, n=batch_size)
+                inputs = self.env_state_and_action_to_inputs(env_state, action)
+                # create inverted labels for the fake samples (because generator goal is to trick the discriminator)
+                # so our objective (label) is 1 and if discriminator says 1 we have an error of 0 and vice versa
+                real_labels = np.ones((batch_size, 1))
+                # update the encoder via the discriminator's error
+                g_loss = self.enc_gan.train_on_batch(inputs, real_labels)
+
+                # summarize loss on this batch
+                print(
+                    f">{i + 1}, {j + 1:0{len(str(steps_per_epoch))}d}/{steps_per_epoch}, d={d_loss:.3f}, g={g_loss:.3f}"
+                )
+            self.summarize_performance()
+
+    def summarize_performance(self, n=100):
+        env_state, action, reward, next_env_state, _ = self.generate_random_episodes(get_obj=False, n=n)
+        action = tf.keras.utils.to_categorical(action, num_classes=self.env.action_space.n)
+        inputs = np.concatenate((env_state, action), axis=1)
+        pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict(inputs)
+        real_inputs = np.concatenate((env_state, reward, action, next_env_state), axis=1)
+        fake_inputs = np.concatenate((env_state, pred_reward, reconstructed_action, pred_next_env_state), axis=1)
+        # evaluate discriminator on real examples
+        _, acc_real = self.enc_discriminator.evaluate(real_inputs, np.ones(shape=(n, 1)), verbose=0)
+        # evaluate discriminator on fake examples
+        _, acc_fake = self.enc_discriminator.evaluate(fake_inputs, np.zeros(shape=(n, 1)), verbose=0)
+        # summarize discriminator performance
+        print(f">Accuracy real: {acc_real * 100:.0f}%%, fake: {acc_fake * 100:.0f}%%")
+
+    ####################################################################################################################
+    """ Methods used for visualization """
+    ####################################################################################################################
+
+    def save_model_architecture_images(
+        self, models: Optional[List[Model]] = None, path: str = "images/epn_rl/architecture"
+    ):
+        models = models if models is not None else []
+        models.extend(
+            [
+                self.encoder,
+                self.decoder,
+                self.autoencoder,
+                self.dec_discriminator,
+                self.enc_discriminator,
+                self.dec_gan,
+                self.enc_gan,
+            ]
+        )
+        super().save_model_architecture_images(models, path)
+
     def _generate_random_episode(self, get_obj):
         """Generates a random episode consisting of (env_state, action, reward, next_env_state, done).
 
@@ -140,11 +239,6 @@ class EPNetworkRL(EPNetwork):
             env_state[i], action[i], reward[i], next_env_state[i], done[i] = self._generate_random_episode(get_obj)
         return env_state, action, reward, next_env_state, done
 
-    def get_random_episodes_from_dataset(self, n):
-        ix = randint(0, self.x_train_norm.shape[0], n)
-        env_state, action, reward, next_env_state, done = self.x_train_norm[ix]
-        return env_state, action, reward, next_env_state, done
-
     def predict_next_env_state_and_latent_space(self, env_state, action):
         """Given an env_state, the generator predicts the resulting env_state + latent space"""
         inputs = self.env_state_and_action_to_inputs(env_state, action)
@@ -154,84 +248,6 @@ class EPNetworkRL(EPNetwork):
         action_one_hot = tf.keras.utils.to_categorical(action, num_classes=self.env.action_space.n)
         inputs = np.concatenate((env_state, action_one_hot), axis=1)
         return inputs
-
-    def train_autoencoder(self, **kwargs):
-        state = np.array([*self.x_train_norm[:, 0]])
-        action = np.array([*self.x_train_norm[:, 1]])
-        inputs = np.concatenate((state, action), axis=1)
-        expected_next_state = np.array([*self.y_train[:, 1]])
-        expected_reward = np.array([*self.y_train[:, 0]]).reshape(-1, 1)
-
-        self.autoencoder.fit(inputs, [expected_next_state, expected_reward, action, inputs], **kwargs)
-
-    def train(self, epochs: int, batch_size: int, steps_per_epoch: int, train_encoder: bool):
-        half_batch = int(batch_size / 2)
-        # manually enumerate epochs
-        for i in range(epochs):
-            # enumerate batches over the training set
-            for j in range(steps_per_epoch):
-                """ Discriminator training """
-                # create training set for the discriminator
-                env_state, action, _, _, _ = self.generate_random_episodes(get_obj=False, n=half_batch)
-                pred = self.predict_next_env_state_and_latent_space(env_state, action)
-                next_env_state_pred = pred[:, : self.nr_valid_tiles]
-                real_labels, fake_labels = (np.ones(shape=(half_batch, 1)), np.zeros(shape=(half_batch, 1)))
-                x_discriminator = np.vstack((env_state, next_env_state_pred))
-                labels = np.vstack((real_labels, fake_labels))
-                # One-sided label smoothing (not sure if it makes sense in rl setting)
-                # labels[:half_batch] = 0.9
-                # update discriminator model weights
-                d_loss, _ = self.enc_discriminator.train_on_batch(x_discriminator, labels)
-
-                """ Generator training (discriminator weights deactivated!) """
-                # prepare points in latent space as input for the generator
-                env_state, action, _, _, _ = self.generate_random_episodes(get_obj=False, n=batch_size)
-                env_state = self.env_state_and_action_to_inputs(env_state, action)
-                # create inverted labels for the fake samples (because generator goal is to trick the discriminator)
-                # so our objective (label) is 1 and if discriminator says 1 we have an error of 0 and vice versa
-                real_labels = np.ones((batch_size, 1))
-                # update the encoder via the discriminator's error
-                g_loss = self.enc_gan.train_on_batch(env_state, real_labels)
-
-                """ Autoencoder training """
-                # this might result in the discriminator outperforming the encoder depending on architecture
-                # TODO: not working at the moment cause we need env_state and next_env_state from the dataset instead of
-                # being generated
-                # self.autoencoder.train_on_batch(env_state, [next_env_state, env_state]) if train_encoder else None
-
-                # summarize loss on this batch
-                print(
-                    f">{i + 1}, {j + 1:0{len(str(steps_per_epoch))}d}/{steps_per_epoch}, d={d_loss:.3f}, g={g_loss:.3f}"
-                )
-            self.summarize_performance(i)
-
-    def summarize_performance(self, epoch, n=100):
-        env_state, action, _, _, _ = self.generate_random_episodes(get_obj=False, n=n)
-        pred = self.predict_next_env_state_and_latent_space(env_state, action)
-        next_env_state_pred = pred[:, : self.nr_valid_tiles]
-        # evaluate discriminator on real examples
-        _, acc_real = self.enc_discriminator.evaluate(env_state, np.ones(shape=(n, 1)), verbose=0)
-        # evaluate discriminator on fake examples
-        _, acc_fake = self.enc_discriminator.evaluate(next_env_state_pred, np.zeros(shape=(n, 1)), verbose=0)
-        # summarize discriminator performance
-        print(f">Accuracy real: {acc_real * 100:.0f}%%, fake: {acc_fake * 100:.0f}%%")
-
-    def save_model_architecture_images(
-        self, models: Optional[List[Model]] = None, path: str = "images/epn_rl/architecture"
-    ):
-        models = models if models is not None else []
-        models.extend(
-            [
-                self.encoder,
-                self.decoder,
-                self.autoencoder,
-                self.dec_discriminator,
-                self.enc_discriminator,
-                self.dec_gan,
-                self.enc_gan,
-            ]
-        )
-        super().save_model_architecture_images(models, path)
 
     def visualize_autoencoder_predictions_to_file(self, state, n_samples=10, path="images/epn_rl/plots"):
         width = n_samples
