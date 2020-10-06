@@ -1,6 +1,6 @@
 from typing import List, Tuple, Optional
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.layers import Dense, LeakyReLU, concatenate
+from tensorflow.keras.layers import Input, Dense, LeakyReLU, concatenate
 from tensorflow.keras.models import Model
 from tensorflow.keras.utils import to_categorical
 from numpy.random import randint
@@ -50,7 +50,9 @@ class EPNetworkSupervised(EPNetwork):
 
         # Build Autoencoder
         self.encoder, self.decoder, self.autoencoder = self.build_autoencoder(
-            encoder_input_shape=self.x_train_norm.shape[1:],
+            encoder_input_layers=[
+                Input(shape=self.x_train_norm.shape[1:], name="encoder_input"),
+            ],
             encoder_output_layers=[
                 Dense(self.classification_dim, activation="softmax", name="digit_classifier"),
                 Dense(self.latent_dim, activation=LeakyReLU(alpha=0.2), name="latent_space"),
@@ -61,10 +63,12 @@ class EPNetworkSupervised(EPNetwork):
 
         # Build Discriminator
         self.discriminator = self.build_discriminator(
-            input_shape=self.decoder.output_shape[1:],
+            input_layers=[
+                Input(shape=self.decoder.output_shape[1:], name="reconstructions"),
+            ],
             output_layers=[
                 Dense(1, activation="sigmoid", name="real_or_fake"),
-                Dense(self.classification_dim, activation="softmax", name="classification"),
+                Dense(self.classification_dim, activation="softmax", name="digit_classifier"),
             ],
         )
         self.discriminator.compile(

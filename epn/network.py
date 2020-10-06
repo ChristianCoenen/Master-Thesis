@@ -27,7 +27,7 @@ class EPNetwork:
 
     def _build_encoder(
         self,
-        input_shape: Union[Tuple[int, ...], int],
+        input_layers: List[Layer],
         output_layers: List[Layer],
         model_name: Optional[str] = "encoder",
     ) -> Model:
@@ -50,16 +50,21 @@ class EPNetwork:
         for idx, encoder_layer in enumerate(self.encoder_dims):
             encoder_layers.append(Dense(self.encoder_dims[idx], activation=LeakyReLU(alpha=0.2), name=f"encoder_{idx}"))
 
-        # Build encoder model
-        encoder_inputs = Input(shape=input_shape, name="encoder_input")
-        x = Flatten()(encoder_inputs) if type(input_shape) == tuple else encoder_inputs
+        """ Build encoder model """
+        # Concatenate all input layers (if more than 1) and Flatten multidimensional inputs beforehand
+        flattened_input_layers = []
+        for input_layer in input_layers:
+            flattened_input_layers.append(Flatten()(input_layer) if len(input_layer.shape[1:]) > 1 else input_layer)
+        encoder_inputs = flattened_input_layers[0] if len(input_layers) < 2 else concatenate(flattened_input_layers)
+
+        x = encoder_inputs
         for encoder_layer in encoder_layers:
             x = encoder_layer(x)
 
         # Create an output layer based on the last encoder layer for each passed layer
         built_output_layers = [output_layer(x) for output_layer in output_layers]
 
-        return Model(encoder_inputs, outputs=built_output_layers, name=model_name)
+        return Model(input_layers, outputs=built_output_layers, name=model_name)
 
     def _build_decoder(
         self,
@@ -82,15 +87,17 @@ class EPNetwork:
         output_encoder_layers = encoder.layers[-(len(encoder.outputs)) :]
 
         # Build decoder model
-        decoder_inputs = Input(shape=sum([tensor.shape[-1] for tensor in encoder.outputs]), name="decoder_input")
-        x = decoder_inputs
+        decoder_inputs = [
+            Input(shape=tensor.shape[-1], name=tensor.name.split("/")[0]) for tensor in reversed(encoder.outputs)
+        ]
+        x = decoder_inputs[0] if len(decoder_inputs) < 2 else concatenate(decoder_inputs)
 
         if self.weight_sharing:
             # output_encoder_layers[::-1]: Order seems to matter. Interestingly, inverse order performs better.
             # Might be because of the 'transpose_b=True' in DenseTranspose class, inverse order might be correct
             x = DenseTranspose(
                 dense_layers=output_encoder_layers[::-1], activation=LeakyReLU(alpha=0.2), name=f"decoder_0"
-            )(decoder_inputs)
+            )(x)
             for idx, encoder_layer in enumerate(reversed(hidden_encoder_layers)):
                 x = DenseTranspose(
                     dense_layers=[encoder_layer],
@@ -110,7 +117,7 @@ class EPNetwork:
 
     def build_autoencoder(
         self,
-        encoder_input_shape: Union[Tuple[int, ...], int],
+        encoder_input_layers: List[Layer],
         encoder_output_layers: List[Layer],
         ae_ignored_output_layer_names: Optional[List[str]] = None,
         model_name: Optional[str] = "autoencoder",
@@ -132,11 +139,10 @@ class EPNetwork:
 
         """
         # Build autoencoder
-        encoder = self._build_encoder(encoder_input_shape, encoder_output_layers)
-        encoded = encoder(encoder.input)
-
+        encoder = self._build_encoder(encoder_input_layers, encoder_output_layers)
+        encoded = encoder(encoder.inputs)
         decoder = self._build_decoder(encoder)
-        decoded = decoder(concatenate(encoded) if type(encoded) is list else encoded)
+        decoded = decoder(encoded)
 
         # Ensure that encoded is a list (if encoder has only 1 output, encoded is a Tensor instead of a List of Tensors)
         encoded = [encoded] if type(encoded) is not list else encoded
@@ -146,12 +152,12 @@ class EPNetwork:
             if ae_ignored_output_layer_names
             else encoded
         )
-        autoencoder = Model(encoder.input, outputs=[*autoencoder_outputs, decoded], name=model_name)
+        autoencoder = Model(encoder.inputs, outputs=[*autoencoder_outputs, decoded], name=model_name)
         return encoder, decoder, autoencoder
 
     def build_discriminator(
         self,
-        input_shape: Union[Tuple[int, ...], int],
+        input_layers: List[Layer],
         output_layers: List[Layer],
         model_name: Optional[str] = "discriminator",
     ):
@@ -175,8 +181,17 @@ class EPNetwork:
 
         :return: A model object.
         """
-        inputs = Input(shape=input_shape, name="discriminator_inputs")
-        x = Flatten()(inputs) if type(input_shape) == tuple else inputs
+
+        """ Build discriminator model """
+        # Concatenate all input layers (if more than 1) and Flatten multidimensional inputs beforehand
+        flattened_input_layers = []
+        for input_layer in input_layers:
+            flattened_input_layers.append(Flatten()(input_layer) if len(input_layer.shape[1:]) > 1 else input_layer)
+
+        discriminator_inputs = (
+            flattened_input_layers[0] if len(input_layers) < 2 else concatenate(flattened_input_layers)
+        )
+        x = discriminator_inputs
 
         for layer_dim in self.discriminator_dims:
             x = Dense(layer_dim, activation=LeakyReLU(alpha=0.2))(x)
@@ -185,7 +200,7 @@ class EPNetwork:
         # Create an output layer based on the last encoder layer for each passed layer
         built_output_layers = [output_layer(x) for output_layer in output_layers]
 
-        return Model(inputs, outputs=built_output_layers, name=model_name)
+        return Model(input_layers, outputs=built_output_layers, name=model_name)
 
     def build_gan(
         self,
@@ -206,7 +221,9 @@ class EPNetwork:
 
         :return: A model object.
         """
-        inputs = Input(shape=generator.input_shape[1:], name="gan_inputs")
+        inputs = [
+            Input(shape=tensor.shape[-1], name=tensor.name.split(":")[0]) for tensor in reversed(generator.inputs)
+        ]
         generated = generator(inputs)
         # Only use generated outputs as discriminator inputs that are not specified in 'ignored_layer_names'
         discriminator_inputs = (
