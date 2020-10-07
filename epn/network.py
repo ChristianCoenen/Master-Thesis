@@ -8,7 +8,19 @@ from epn.custom_layers import DenseTranspose
 
 
 class EPNetwork:
+    """ The entropy propagation base class. It defines the base architecture and is highly customizable. """
+
     def __init__(self, weight_sharing: bool, encoder_dims: List[int], discriminator_dims: List[int]):
+        """
+        :param weight_sharing:
+            If set to true, the decoder will used the weights created on the encoder side using DenseTranspose layers
+        :param encoder_dims:
+            Each value (x) represents one hidden encoder layer with x neurons.
+        :param discriminator_dims:
+            Each value (x) represents one hidden layer with x neurons. By default, the discriminator network will
+            mimic the structure of the hidden encoder layers (since the generator has the same structure as the encoder,
+            the discriminator will and decoder are of the same size which is mostly good in an adversarial setting).
+        """
         self.weight_sharing = weight_sharing
         self.encoder_dims = encoder_dims
         self.discriminator_dims = discriminator_dims
@@ -19,7 +31,20 @@ class EPNetwork:
         output_layers: List[Layer],
         model_name: Optional[str] = "encoder",
     ) -> Model:
-        """This class creates an encoder model with x encoder layers and y output layers."""
+        """
+        This class creates an encoder model with x encoder layers and y output layers.
+
+        :param input_shape
+            The shape of the input layer. Currently only one input layer is supported -> multiple inputs have to be
+            concatenated.
+        :param output_layers
+            Takes a list of valid keras layers and attaches them as output layers to the encoder.
+        :param model_name
+            The name of the model (useful for plots)
+
+        :returns: A model object.
+
+        """
         # Define encoder layers
         encoder_layers = []
         for idx, encoder_layer in enumerate(self.encoder_dims):
@@ -41,7 +66,16 @@ class EPNetwork:
         encoder: Model,
         model_name: Optional[str] = "decoder",
     ) -> Model:
-        """This class creates an decoder model that clones the encoder architecture."""
+        """This class creates an decoder model that clones the encoder architecture.
+
+        :param encoder
+            A model object that represents the encoder.
+        :param model_name
+            The name of the model (useful for plots)
+
+        :returns: A model object.
+
+        """
         hidden_encoder_layers = [
             layer for layer in encoder.layers if layer.name not in encoder.output_names and hasattr(layer, "kernel")
         ]
@@ -81,6 +115,22 @@ class EPNetwork:
         ae_ignored_output_layer_names: Optional[List[str]] = None,
         model_name: Optional[str] = "autoencoder",
     ) -> Tuple[Model, Model, Model]:
+        """
+        Creates an autoencoder by calling the build_encoder & build_decoder method and concatenating the returned models
+
+        :param encoder_input_shape
+            The input shape for the encoder.
+        :param encoder_output_layers
+            A list of valid keras layers that are attached as output layers to the encoder.
+        :param ae_ignored_output_layer_names
+            A list of layer names that are ignored as autoencoder outputs. If empty, the decoder will use all output
+            layers of the encoder + the decoder's output, which is always used.
+        :param model_name
+            The name of the model (useful for plots)
+
+        :returns: Three model objects (encoder, decoder, autoencoder).
+
+        """
         # Build autoencoder
         encoder = self._build_encoder(encoder_input_shape, encoder_output_layers)
         encoded = encoder(encoder.input)
@@ -105,13 +155,25 @@ class EPNetwork:
         output_layers: List[Layer],
         model_name: Optional[str] = "discriminator",
     ):
-        """Creates a discriminator model.
+        """
+        Creates a discriminator model.
 
         Leaky ReLU is recommended for Discriminator networks.
         'Within the discriminator we found the leaky rectified activation to work well ...'
             — Unsupervised Representation Learning with Deep Convolutional Generative Adversarial Networks, 2015.
 
-        :return: Discriminator model
+        Additionally, each layer is followed by a dropout layer of strength 0.3. This is a commonly used addition for
+        discriminator networks to prevent them from outperforming the generator during training.
+
+        :param input_shape
+            The shape of the input layer. Currently only one input layer is supported -> multiple inputs have to be
+            concatenated.
+        :param output_layers
+            Takes a list of valid keras layers and attaches them as output layers to the discriminator.
+        :param model_name
+            The name of the model (useful for plots)
+
+        :return: A model object.
         """
         inputs = Input(shape=input_shape, name="discriminator_inputs")
         x = Flatten()(inputs) if type(input_shape) == tuple else inputs
@@ -132,9 +194,17 @@ class EPNetwork:
         ignored_layer_names: Optional[List[str]] = None,
         model_name: Optional[str] = "gan",
     ) -> Model:
-        """Defines a GAN consisting of a generator and a discriminator model. GAN is used to train the generator.
+        """
+        Defines a GAN consisting of a generator and a discriminator model. The GAN is used to train the generator.
 
-        :return:
+        :param generator
+            A model object that represents a generator / decoder.
+        :param discriminator
+            A model object that represents a discriminator.
+        :param model_name
+            The name of the model (useful for plots)
+
+        :return: A model object.
         """
         inputs = Input(shape=generator.input_shape[1:], name="gan_inputs")
         generated = generator(inputs)
@@ -149,14 +219,19 @@ class EPNetwork:
 
     @abc.abstractmethod
     def train_autoencoder(self, **kwargs):
+        """ When using an epn architecture, it should always be possible to train the autoencoder separately """
         pass
 
     @abc.abstractmethod
     def train(self, epochs: int, batch_size: int, steps_per_epoch: int, train_encoder: bool):
+        """ When using a epn architecture, a train function has to be provided """
         pass
 
     def save_model_architecture_images(self, models: List[Model], path: str):
-        """Saves all passed models as PNGs into a defined subfolder.
+        """
+        Saves all passed models as PNGs into a defined subfolder. A common use case for this method is to call it
+        in the respective subclasses with the defined models.
+
 
         :param models:
         :param path: str

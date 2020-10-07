@@ -41,14 +41,6 @@ class EPNetworkSupervised(EPNetwork):
             Number of latent space neurons (bottleneck layer in the Autoencoder)
         :param autoencoder_loss:
             This parameter allows to define the classification and reconstruction loss functions for the autoencoder.
-        :param weight_sharing:
-            If set to true, the decoder will used the weights created on the encoder side using DenseTranspose layers
-        :param encoder_dims:
-            Each value (x) represents one hidden encoder layer with x neurons.
-        :param discriminator_dims:
-            Each value (x) represents one hidden layer with x neurons. By default, the discriminator network will
-            mimic the structure of the hidden encoder layers (since the generator has the same structure as the encoder,
-            the discriminator will and decoder are of the same size which is mostly good in an adversarial setting).
         """
         super().__init__(weight_sharing, encoder_dims, discriminator_dims)
         (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = data
