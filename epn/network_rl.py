@@ -128,12 +128,8 @@ class EPNetworkRL(EPNetwork):
                 """ Discriminator training """
                 # create training set for the discriminator
                 env_state, action, reward, next_env_state, _ = self.get_random_episodes_from_dataset(n=half_batch)
-                inputs = np.concatenate((env_state, action), axis=1)
-                pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict(inputs)
-                real_labels, fake_labels = (np.ones(shape=(half_batch, 1)), np.zeros(shape=(half_batch, 1)))
-                real_inputs = np.concatenate((env_state, reward, action, next_env_state), axis=1)
-                fake_inputs = np.concatenate(
-                    (env_state, pred_reward, reconstructed_action, pred_next_env_state), axis=1
+                real_inputs, fake_inputs, real_labels, fake_labels = self.create_discriminator_training_set(
+                    env_state, action, reward, next_env_state, n=half_batch
                 )
                 x_discriminator = np.vstack((real_inputs, fake_inputs))
                 labels = np.vstack((real_labels, fake_labels))
@@ -143,8 +139,9 @@ class EPNetworkRL(EPNetwork):
                 d_loss, _ = self.enc_discriminator.train_on_batch(x_discriminator, labels)
 
                 """ Autoencoder training """
-                # this might result in the discriminator outperforming the encoder depending on architecture
+                # this might result in discriminator outperforming the encoder depending on architecture or vice versa
                 if train_encoder:
+                    inputs = np.concatenate((env_state, action), axis=1)
                     self.autoencoder.train_on_batch(inputs, [next_env_state, reward, action, inputs])
 
                 """ Generator training (discriminator weights deactivated!) """
@@ -163,13 +160,20 @@ class EPNetworkRL(EPNetwork):
                 )
             self.summarize_performance()
 
+    def create_discriminator_training_set(self, env_state, action, reward, next_env_state, n):
+        inputs = np.concatenate((env_state, action), axis=1)
+        pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict(inputs)
+        real_labels, fake_labels = (np.ones(shape=(n, 1)), np.zeros(shape=(n, 1)))
+        real_inputs = np.concatenate((env_state, reward, action, next_env_state), axis=1)
+        fake_inputs = np.concatenate((env_state, pred_reward, reconstructed_action, pred_next_env_state), axis=1)
+        return real_inputs, fake_inputs, real_labels, fake_labels
+
     def summarize_performance(self, n=100):
         env_state, action, reward, next_env_state, _ = self.generate_random_episodes(get_obj=False, n=n)
         action = tf.keras.utils.to_categorical(action, num_classes=self.env.action_space.n)
-        inputs = np.concatenate((env_state, action), axis=1)
-        pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict(inputs)
-        real_inputs = np.concatenate((env_state, reward, action, next_env_state), axis=1)
-        fake_inputs = np.concatenate((env_state, pred_reward, reconstructed_action, pred_next_env_state), axis=1)
+        real_inputs, fake_inputs, _, _ = self.create_discriminator_training_set(
+            env_state, action, reward, next_env_state, n
+        )
         # evaluate discriminator on real examples
         _, acc_real = self.enc_discriminator.evaluate(real_inputs, np.ones(shape=(n, 1)), verbose=0)
         # evaluate discriminator on fake examples
