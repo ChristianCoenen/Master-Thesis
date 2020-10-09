@@ -42,7 +42,10 @@ class EPNetworkRL(EPNetwork):
 
         # Build Autoencoder
         self.encoder, self.decoder, self.autoencoder = self.build_autoencoder(
-            encoder_input_shape=self.nr_valid_tiles + self.env.action_space.n,
+            encoder_input_tensors=[
+                Input(shape=self.nr_valid_tiles, name="state"),
+                Input(shape=self.env.action_space.n, name="action"),
+            ],
             encoder_output_layers=[
                 Dense(self.nr_valid_tiles, activation="softmax", name=f"expected_next_state"),
                 Dense(1, activation="tanh", name=f"expected_reward"),
@@ -55,7 +58,10 @@ class EPNetworkRL(EPNetwork):
 
         # Build an encoder and a decoder discriminator
         self.dec_discriminator = self.build_discriminator(
-            input_shape=self.decoder.output_shape[1:],
+            input_tensors=[
+                Input(shape=self.nr_valid_tiles, name="reconstructed_state"),
+                Input(shape=self.env.action_space.n, name="recustructed_action"),
+            ],
             output_layers=[Dense(1, activation="sigmoid", name="real_or_fake")],
             model_name="dec_discriminator",
         )
@@ -64,7 +70,12 @@ class EPNetworkRL(EPNetwork):
         )
 
         self.enc_discriminator = self.build_discriminator(
-            input_shape=2 * self.nr_valid_tiles + self.env.action_space.n + 1,
+            input_tensors=[
+                Input(shape=self.nr_valid_tiles, name="state"),
+                Input(shape=self.nr_valid_tiles, name="expected_next_state"),
+                Input(shape=1, name="expected_reward"),
+                Input(shape=self.env.action_space.n, name="reconstructed_action"),
+            ],
             output_layers=[Dense(1, activation="sigmoid", name="real_or_fake")],
             model_name="enc_discriminator",
         )
@@ -87,16 +98,16 @@ class EPNetworkRL(EPNetwork):
         self.enc_gan.compile(loss="binary_crossentropy", optimizer=Adam(lr=0.0002, beta_1=0.5))
 
     def build_enc_gan(self, encoder, discriminator, ignored_layer_names: Optional[List[str]] = None) -> Model:
-        inputs = Input(shape=self.encoder.input_shape[1:], name="gan_inputs")
+        inputs = [Input(shape=tensor.shape[1:], name=tensor.name.split(":")[0]) for tensor in encoder.inputs]
         encoded = encoder(inputs)
         # Only use generated outputs as discriminator inputs that are not specified in 'ignored_layer_names'
-        discriminator_inputs = (
+        discriminator_inputs = [inputs[0]]
+        discriminator_inputs.extend(
             [output for output in encoded if output.name.split("/")[1] not in ignored_layer_names]
             if ignored_layer_names
             else encoded
         )
-        discriminator_inputs.append(inputs[:, : self.nr_valid_tiles])
-        discriminated = discriminator(concatenate(discriminator_inputs))
+        discriminated = discriminator(discriminator_inputs)
         return Model(inputs, discriminated, name="enc_gan")
 
     def train_autoencoder(self, **kwargs):
@@ -106,7 +117,7 @@ class EPNetworkRL(EPNetwork):
         next_env_state = np.array([*self.y_train[:, 1]])
         reward = np.array([*self.y_train[:, 0]]).reshape(-1, 1)
 
-        self.autoencoder.fit(inputs, [next_env_state, reward, action, inputs], **kwargs)
+        self.autoencoder.fit([env_state, action], [next_env_state, reward, action, [env_state, action]], **kwargs)
 
     def get_random_episodes_from_dataset(self, n):
         ix = randint(0, self.x_train_norm.shape[0], n)
@@ -128,10 +139,18 @@ class EPNetworkRL(EPNetwork):
                 """ Discriminator training """
                 # create training set for the discriminator
                 env_state, action, reward, next_env_state, _ = self.get_random_episodes_from_dataset(n=half_batch)
-                real_inputs, fake_inputs, real_labels, fake_labels = self.create_discriminator_training_set(
-                    env_state, action, reward, next_env_state, n=half_batch
+                pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict(
+                    [env_state, action]
                 )
-                x_discriminator = np.vstack((real_inputs, fake_inputs))
+                real_inputs = [env_state, next_env_state, reward, action]
+                fake_inputs = [env_state, pred_next_env_state, pred_reward, reconstructed_action]
+                real_labels, fake_labels = (np.ones(shape=(half_batch, 1)), np.zeros(shape=(half_batch, 1)))
+                x_discriminator = [
+                    np.array([*env_state, *env_state]),
+                    np.array([*next_env_state, *pred_next_env_state]),
+                    np.array([*reward, *pred_reward]),
+                    np.array([*action, *reconstructed_action]),
+                ]
                 labels = np.vstack((real_labels, fake_labels))
                 # One-sided label smoothing (not sure if it makes sense in rl setting)
                 # labels[:half_batch] = 0.9
@@ -141,18 +160,19 @@ class EPNetworkRL(EPNetwork):
                 """ Autoencoder training """
                 # this might result in discriminator outperforming the encoder depending on architecture or vice versa
                 if train_encoder:
-                    inputs = np.concatenate((env_state, action), axis=1)
-                    self.autoencoder.train_on_batch(inputs, [next_env_state, reward, action, inputs])
+                    self.autoencoder.train_on_batch(
+                        [env_state, action], [next_env_state, reward, action, [env_state, action]]
+                    )
 
                 """ Generator training (discriminator weights deactivated!) """
                 # prepare points in latent space as input for the generator
                 env_state, action, _, _, _ = self.generate_random_episodes(get_obj=False, n=batch_size)
-                inputs = self.env_state_and_action_to_inputs(env_state, action)
+                action_one_hot = tf.keras.utils.to_categorical(action, num_classes=self.env.action_space.n)
                 # create inverted labels for the fake samples (because generator goal is to trick the discriminator)
                 # so our objective (label) is 1 and if discriminator says 1 we have an error of 0 and vice versa
                 real_labels = np.ones((batch_size, 1))
                 # update the encoder via the discriminator's error
-                g_loss = self.enc_gan.train_on_batch(inputs, real_labels)
+                g_loss = self.enc_gan.train_on_batch([env_state, action_one_hot], real_labels)
 
                 # summarize loss on this batch
                 print(
@@ -160,20 +180,12 @@ class EPNetworkRL(EPNetwork):
                 )
             self.summarize_performance()
 
-    def create_discriminator_training_set(self, env_state, action, reward, next_env_state, n):
-        inputs = np.concatenate((env_state, action), axis=1)
-        pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict(inputs)
-        real_labels, fake_labels = (np.ones(shape=(n, 1)), np.zeros(shape=(n, 1)))
-        real_inputs = np.concatenate((env_state, reward, action, next_env_state), axis=1)
-        fake_inputs = np.concatenate((env_state, pred_reward, reconstructed_action, pred_next_env_state), axis=1)
-        return real_inputs, fake_inputs, real_labels, fake_labels
-
     def summarize_performance(self, n=100):
         env_state, action, reward, next_env_state, _ = self.generate_random_episodes(get_obj=False, n=n)
         action = tf.keras.utils.to_categorical(action, num_classes=self.env.action_space.n)
-        real_inputs, fake_inputs, _, _ = self.create_discriminator_training_set(
-            env_state, action, reward, next_env_state, n
-        )
+        pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict([env_state, action])
+        real_inputs = [env_state, next_env_state, reward, action]
+        fake_inputs = [env_state, pred_next_env_state, pred_reward, reconstructed_action]
         # evaluate discriminator on real examples
         _, acc_real = self.enc_discriminator.evaluate(real_inputs, np.ones(shape=(n, 1)), verbose=0)
         # evaluate discriminator on fake examples
@@ -259,10 +271,15 @@ class EPNetworkRL(EPNetwork):
         plt.figure(figsize=(width, height))
         for idx in range(n_samples):
             env_state_obj, action, _, _, _ = self._generate_random_episode(get_obj=True)
-            inputs = self.env_state_and_action_to_inputs(
-                env_state_obj.to_valid_obs().reshape(1, -1), np.array(action).reshape(1, -1)
-            )
-            [pred_next_env_state, pred_reward, reconstructed_action, reconstruction] = self.autoencoder.predict(inputs)
+            env_state = env_state_obj.to_valid_obs().reshape(1, -1)
+            action_one_hot = tf.keras.utils.to_categorical(action, num_classes=self.env.action_space.n).reshape(1, -1)
+
+            [
+                pred_next_env_state,
+                pred_reward,
+                reconstructed_action,
+                (dec_reconstructed_state, dec_reconstructed_action),
+            ] = self.autoencoder.predict([env_state, action_one_hot])
 
             # Sampled maze state + action
             add_subplot(image=env_state_obj.to_rgb(), n_cols=height, n_rows=width, index=1 + idx)
@@ -284,8 +301,8 @@ class EPNetworkRL(EPNetwork):
 
             # Reconstructed maze state + action (decoder)
             add_subplot(image=env_state_obj.to_rgb(), n_cols=height, n_rows=width, index=1 + idx + 3 * n_samples)
-            annotate_maze(reconstruction[0][: -self.env.action_space.n], env_state_obj)
-            actions_one_hot = reconstruction[0][-self.env.action_space.n :]
+            annotate_maze(dec_reconstructed_state[0], env_state_obj)
+            actions_one_hot = dec_reconstructed_action[0]
             annotate_action_values(
                 n_cols=height,
                 n_rows=width,

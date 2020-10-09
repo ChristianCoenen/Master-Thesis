@@ -50,12 +50,12 @@ class EPNetworkSupervised(EPNetwork):
 
         # Build Autoencoder
         self.encoder, self.decoder, self.autoencoder = self.build_autoencoder(
-            encoder_input_layers=[
+            encoder_input_tensors=[
                 Input(shape=self.x_train_norm.shape[1:], name="encoder_input"),
             ],
             encoder_output_layers=[
-                Dense(self.classification_dim, activation="softmax", name="digit_classifier"),
                 Dense(self.latent_dim, activation=LeakyReLU(alpha=0.2), name="latent_space"),
+                Dense(self.classification_dim, activation="softmax", name="classifier"),
             ],
             ae_ignored_output_layer_names=["latent_space"],
         )
@@ -63,12 +63,12 @@ class EPNetworkSupervised(EPNetwork):
 
         # Build Discriminator
         self.discriminator = self.build_discriminator(
-            input_layers=[
+            input_tensors=[
                 Input(shape=self.decoder.output_shape[1:], name="reconstructions"),
             ],
             output_layers=[
                 Dense(1, activation="sigmoid", name="real_or_fake"),
-                Dense(self.classification_dim, activation="softmax", name="digit_classifier"),
+                Dense(self.classification_dim, activation="softmax", name="classifier"),
             ],
         )
         self.discriminator.compile(
@@ -83,10 +83,9 @@ class EPNetworkSupervised(EPNetwork):
     def generate_latent_and_classification_points(self, n_samples):
         # generate random points in the latent space
         x_latent = np.random.normal(0, 1, size=(n_samples, self.latent_dim))
-        labels = randint(self.classification_dim, size=n_samples)
-        labels = to_categorical(labels, num_classes=self.classification_dim)
-        x_input = concatenate((x_latent, labels), axis=1)
-        return x_input, labels
+        x_classification = randint(self.classification_dim, size=n_samples)
+        x_classification = to_categorical(x_classification, num_classes=self.classification_dim)
+        return x_latent, x_classification
 
     def generate_fake_samples(self, n_samples):
         """Generates fake samples for
@@ -100,12 +99,12 @@ class EPNetworkSupervised(EPNetwork):
                Helps debugging whether the generated samples match the classification input (e.g. generate a 6)
         """
         # generate random points in the latent space
-        x_inputs, labels = self.generate_latent_and_classification_points(n_samples)
+        x_latent, x_classification = self.generate_latent_and_classification_points(n_samples)
         # predict outputs
-        x = self.decoder.predict(x_inputs)
+        reconstruction = self.decoder.predict([x_latent, x_classification])
         # create 'fake' class labels (0)
         y = zeros((n_samples, 1))
-        return x, y, labels
+        return reconstruction, y, x_classification
 
     def generate_real_samples(self, n_samples):
         """This method samples from the training data set to show real samples to the discriminator.
@@ -149,12 +148,12 @@ class EPNetworkSupervised(EPNetwork):
 
                 """ Generator training (discriminator weights deactivated!) """
                 # prepare points in latent space as input for the generator
-                x_gan, labels = self.generate_latent_and_classification_points(batch_size)
+                x_latent, x_classification = self.generate_latent_and_classification_points(batch_size)
                 # create inverted labels for the fake samples (because generator goal is to trick the discriminator)
-                # so our objective (label) is 1 and if discriminator says 1 we have an error of 0 and vice versa
+                # so our objective (label) is 1 and if discriminator says 1, we have an error of 0 and vice versa
                 y_gan = ones((batch_size, 1))
                 # update the generator via the discriminator's error
-                g_loss, _, _ = self.gan.train_on_batch(x_gan, [y_gan, labels])
+                g_loss, _, _ = self.gan.train_on_batch([x_latent, x_classification], [y_gan, x_classification])
 
                 """ Autoencoder training """
                 # this might result in the discriminator outperforming the generator depending on architecture
