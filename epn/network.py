@@ -1,8 +1,10 @@
 import abc
-from typing import List, Tuple, Union, Optional
+import tensorflow as tf
+from typing import List, Tuple, Optional
 from tensorflow.keras.layers import Layer, Input, Flatten, Dense, LeakyReLU, concatenate, Reshape, Dropout
 from tensorflow.keras.models import Model
 from tensorflow.keras.utils import plot_model
+from tensorflow import Tensor
 from pathlib import Path
 from epn.custom_layers import DenseTranspose
 
@@ -27,16 +29,15 @@ class EPNetwork:
 
     def _build_encoder(
         self,
-        input_shape: Union[Tuple[int, ...], int],
+        input_tensors: List[Tensor],
         output_layers: List[Layer],
         model_name: Optional[str] = "encoder",
     ) -> Model:
         """
         This class creates an encoder model with x encoder layers and y output layers.
 
-        :param input_shape
-            The shape of the input layer. Currently only one input layer is supported -> multiple inputs have to be
-            concatenated.
+        :param input_tensors
+            A list of keras tensors that are attached as input tensors to the encoder.
         :param output_layers
             Takes a list of valid keras layers and attaches them as output layers to the encoder.
         :param model_name
@@ -50,16 +51,21 @@ class EPNetwork:
         for idx, encoder_layer in enumerate(self.encoder_dims):
             encoder_layers.append(Dense(self.encoder_dims[idx], activation=LeakyReLU(alpha=0.2), name=f"encoder_{idx}"))
 
-        # Build encoder model
-        encoder_inputs = Input(shape=input_shape, name="encoder_input")
-        x = Flatten()(encoder_inputs) if type(input_shape) == tuple else encoder_inputs
+        """ Build encoder model """
+        # Concatenate all input layers (if more than 1) and Flatten multidimensional inputs beforehand
+        flattened_input_tensors = []
+        for input_tensor in input_tensors:
+            flattened_input_tensors.append(Flatten()(input_tensor) if len(input_tensor.shape[1:]) > 1 else input_tensor)
+        encoder_inputs = flattened_input_tensors[0] if len(input_tensors) < 2 else concatenate(flattened_input_tensors)
+
+        x = encoder_inputs
         for encoder_layer in encoder_layers:
             x = encoder_layer(x)
 
         # Create an output layer based on the last encoder layer for each passed layer
         built_output_layers = [output_layer(x) for output_layer in output_layers]
 
-        return Model(encoder_inputs, outputs=built_output_layers, name=model_name)
+        return Model(input_tensors, outputs=built_output_layers, name=model_name)
 
     def _build_decoder(
         self,
@@ -82,35 +88,60 @@ class EPNetwork:
         output_encoder_layers = encoder.layers[-(len(encoder.outputs)) :]
 
         # Build decoder model
-        decoder_inputs = Input(shape=sum([tensor.shape[-1] for tensor in encoder.outputs]), name="decoder_input")
-        x = decoder_inputs
+        decoder_inputs = [Input(shape=tensor.shape[-1], name=tensor.name.split("/")[0]) for tensor in encoder.outputs]
+        x = decoder_inputs[0] if len(decoder_inputs) < 2 else concatenate(decoder_inputs)
 
+        # Hidden layers
         if self.weight_sharing:
-            # output_encoder_layers[::-1]: Order seems to matter. Interestingly, inverse order performs better.
-            # Might be because of the 'transpose_b=True' in DenseTranspose class, inverse order might be correct
-            x = DenseTranspose(
-                dense_layers=output_encoder_layers[::-1], activation=LeakyReLU(alpha=0.2), name=f"decoder_0"
-            )(decoder_inputs)
-            for idx, encoder_layer in enumerate(reversed(hidden_encoder_layers)):
+            x = DenseTranspose(dense_layers=output_encoder_layers, activation=LeakyReLU(alpha=0.2), name=f"decoder_0")(
+                x
+            )
+            for idx, encoder_layer in enumerate(reversed(hidden_encoder_layers[1:])):
                 x = DenseTranspose(
                     dense_layers=[encoder_layer],
-                    activation="sigmoid" if idx == len(hidden_encoder_layers) - 1 else LeakyReLU(alpha=0.2),
+                    activation=LeakyReLU(alpha=0.2),
                     name=f"decoder_{idx + 1}",
                 )(x)
         else:
-            for idx, encoder_layer in enumerate(reversed(hidden_encoder_layers)):
+            for idx, encoder_layer in enumerate(reversed(hidden_encoder_layers[1:])):
                 x = Dense(
                     units=encoder_layer.input_shape[-1],
-                    activation="sigmoid" if idx == len(hidden_encoder_layers) - 1 else LeakyReLU(alpha=0.2),
+                    activation=LeakyReLU(alpha=0.2),
                     name=f"decoder_{idx}",
                 )(x)
 
-        outputs = Reshape(encoder.input_shape[1:])(x) if len(encoder.input_shape[1:]) > 1 else x
+        # Output layers
+        # TODO: this part is not optimal and is a bit messy / hard to understand, but I don't see another solution.
+        # What's happening here is that decoder outputs are basically the same as incoder inputs, so we iterate through
+        # the encoder inputs and create decoder layers. Because encoder inputs are concatenated and there is no direct
+        # split in tensorflow, the weights are sliced to ensure that weight sharing is still working
+        outputs = []
+        encoder_layer = hidden_encoder_layers[0]
+        counter = 0
+        for input_tensor in encoder.inputs:
+            neurons = Flatten()(input_tensor).shape[-1]
+            if self.weight_sharing:
+                output = DenseTranspose(
+                    dense_layers=[encoder_layer],
+                    activation="sigmoid",
+                    custom_weights=tf.Variable(encoder_layer.weights[0][counter : counter + neurons]),
+                    name=f"{input_tensor.name.split(':')[0]}",
+                )(x)
+            else:
+                output = Dense(
+                    units=Flatten()(input_tensor).shape[-1],
+                    activation="sigmoid",
+                    name=f"{input_tensor.name.split(':')[0]}",
+                )(x)
+            outputs.append(Reshape(encoder.input_shape[1:])(output) if len(encoder.input_shape[1:]) > 1 else output)
+            counter += neurons
+
+        # outputs = Reshape(encoder.input_shape[1:])(x) if len(encoder.input_shape[1:]) > 1 else x
         return Model(decoder_inputs, outputs=outputs, name=model_name)
 
     def build_autoencoder(
         self,
-        encoder_input_shape: Union[Tuple[int, ...], int],
+        encoder_input_tensors: List[Tensor],
         encoder_output_layers: List[Layer],
         ae_ignored_output_layer_names: Optional[List[str]] = None,
         model_name: Optional[str] = "autoencoder",
@@ -118,8 +149,8 @@ class EPNetwork:
         """
         Creates an autoencoder by calling the build_encoder & build_decoder method and concatenating the returned models
 
-        :param encoder_input_shape
-            The input shape for the encoder.
+        :param encoder_input_tensors
+            A list of keras tensors that are attached as input tensors to the encoder.
         :param encoder_output_layers
             A list of valid keras layers that are attached as output layers to the encoder.
         :param ae_ignored_output_layer_names
@@ -132,12 +163,13 @@ class EPNetwork:
 
         """
         # Build autoencoder
-        encoder = self._build_encoder(encoder_input_shape, encoder_output_layers)
-        encoded = encoder(encoder.input)
-
+        encoder = self._build_encoder(encoder_input_tensors, encoder_output_layers)
+        autoencoder_inputs = [
+            Input(shape=tensor.shape[1:], name=tensor.name.split(":")[0]) for tensor in encoder.inputs
+        ]
+        encoded = encoder(autoencoder_inputs)
         decoder = self._build_decoder(encoder)
-        decoded = decoder(concatenate(encoded) if type(encoded) is list else encoded)
-
+        decoded = decoder(encoded)
         # Ensure that encoded is a list (if encoder has only 1 output, encoded is a Tensor instead of a List of Tensors)
         encoded = [encoded] if type(encoded) is not list else encoded
         # Only use encoder outputs as autoencoder outputs that are not specified in 'ae_ignored_output_layer_names'
@@ -146,12 +178,12 @@ class EPNetwork:
             if ae_ignored_output_layer_names
             else encoded
         )
-        autoencoder = Model(encoder.input, outputs=[*autoencoder_outputs, decoded], name=model_name)
+        autoencoder = Model(autoencoder_inputs, outputs=[*autoencoder_outputs, decoded], name=model_name)
         return encoder, decoder, autoencoder
 
     def build_discriminator(
         self,
-        input_shape: Union[Tuple[int, ...], int],
+        input_tensors: List[Tensor],
         output_layers: List[Layer],
         model_name: Optional[str] = "discriminator",
     ):
@@ -165,9 +197,8 @@ class EPNetwork:
         Additionally, each layer is followed by a dropout layer of strength 0.3. This is a commonly used addition for
         discriminator networks to prevent them from outperforming the generator during training.
 
-        :param input_shape
-            The shape of the input layer. Currently only one input layer is supported -> multiple inputs have to be
-            concatenated.
+        :param input_tensors
+            A list of keras tensors that are attached as input tensors to the discriminator.
         :param output_layers
             Takes a list of valid keras layers and attaches them as output layers to the discriminator.
         :param model_name
@@ -175,8 +206,17 @@ class EPNetwork:
 
         :return: A model object.
         """
-        inputs = Input(shape=input_shape, name="discriminator_inputs")
-        x = Flatten()(inputs) if type(input_shape) == tuple else inputs
+
+        """ Build discriminator model """
+        # Concatenate all input layers (if more than 1) and Flatten multidimensional inputs beforehand
+        flattened_input_tensors = []
+        for input_tensor in input_tensors:
+            flattened_input_tensors.append(Flatten()(input_tensor) if len(input_tensor.shape[1:]) > 1 else input_tensor)
+
+        discriminator_inputs = (
+            flattened_input_tensors[0] if len(input_tensors) < 2 else concatenate(flattened_input_tensors)
+        )
+        x = discriminator_inputs
 
         for layer_dim in self.discriminator_dims:
             x = Dense(layer_dim, activation=LeakyReLU(alpha=0.2))(x)
@@ -185,7 +225,7 @@ class EPNetwork:
         # Create an output layer based on the last encoder layer for each passed layer
         built_output_layers = [output_layer(x) for output_layer in output_layers]
 
-        return Model(inputs, outputs=built_output_layers, name=model_name)
+        return Model(input_tensors, outputs=built_output_layers, name=model_name)
 
     def build_gan(
         self,
@@ -201,12 +241,15 @@ class EPNetwork:
             A model object that represents a generator / decoder.
         :param discriminator
             A model object that represents a discriminator.
+        :param ignored_layer_names
+            A list of layer names that are ignored as gan outputs. If empty, the gan will use all output
+            layers of the generator / decoder + the discriminator's output, which is always used.
         :param model_name
             The name of the model (useful for plots)
 
         :return: A model object.
         """
-        inputs = Input(shape=generator.input_shape[1:], name="gan_inputs")
+        inputs = [Input(shape=tensor.shape[-1], name=tensor.name.split(":")[0]) for tensor in generator.inputs]
         generated = generator(inputs)
         # Only use generated outputs as discriminator inputs that are not specified in 'ignored_layer_names'
         discriminator_inputs = (
