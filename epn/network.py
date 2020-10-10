@@ -133,10 +133,9 @@ class EPNetwork:
                     activation="sigmoid",
                     name=f"{input_tensor.name.split(':')[0]}",
                 )(x)
-            outputs.append(Reshape(encoder.input_shape[1:])(output) if len(encoder.input_shape[1:]) > 1 else output)
+            outputs.append(Reshape(input_tensor.shape[1:])(output) if len(input_tensor.shape[1:]) > 1 else output)
             counter += neurons
 
-        # outputs = Reshape(encoder.input_shape[1:])(x) if len(encoder.input_shape[1:]) > 1 else x
         return Model(decoder_inputs, outputs=outputs, name=model_name)
 
     def build_autoencoder(

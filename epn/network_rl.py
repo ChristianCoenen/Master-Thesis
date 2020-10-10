@@ -65,9 +65,7 @@ class EPNetworkRL(EPNetwork):
             output_layers=[Dense(1, activation="sigmoid", name="real_or_fake")],
             model_name="dec_discriminator",
         )
-        self.dec_discriminator.compile(
-            loss=["binary_crossentropy", "mean_squared_error"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"]
-        )
+        self.dec_discriminator.compile(loss=["binary_crossentropy"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"])
 
         self.enc_discriminator = self.build_discriminator(
             input_tensors=[
