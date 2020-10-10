@@ -185,6 +185,7 @@ class EPNetwork:
         input_tensors: List[Tensor],
         output_layers: List[Layer],
         model_name: Optional[str] = "discriminator",
+        use_dropout_layers: Optional[bool] = True,
     ):
         """
         Creates a discriminator model.
@@ -219,7 +220,8 @@ class EPNetwork:
 
         for layer_dim in self.discriminator_dims:
             x = Dense(layer_dim, activation=LeakyReLU(alpha=0.2))(x)
-            x = Dropout(0.3)(x)
+            if use_dropout_layers:
+                x = Dropout(0.3)(x)
 
         # Create an output layer based on the last encoder layer for each passed layer
         built_output_layers = [output_layer(x) for output_layer in output_layers]
