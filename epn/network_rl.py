@@ -1,74 +1,218 @@
+from typing import List, Optional
 from numpy.random import randint
-from epn.network import EntropyPropagationNetwork
+from epn.network import EPNetwork
 from epn.helper import add_subplot, save_plot_as_image
 from copy import deepcopy
 import tensorflow as tf
-from tensorflow.keras.utils import plot_model
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.layers import Input
+from tensorflow.keras.layers import Input, Dense, LeakyReLU, concatenate
 from tensorflow.keras.models import Model
-
 import matplotlib.pyplot as plt
 import numpy as np
 
 
-class EntropyPropagationNetworkRL(EntropyPropagationNetwork):
+class EPNetworkRL(EPNetwork):
     """
     A class implementing the Entropy Propagation Network architecture in an reinforcement learning setting:
-    Differences between EntropyPropagationNetworkRL and EntropyPropagationNetwork:
+    Differences between EPNetworkRL and EPNetworkSupervised:
 
     General:
     1. The environment on which the data was generated needs to be passed in order to visualize the reconstructions, ...
 
     Autoencoder:
-    1.
+    1. Encoder has more outputs (q_values, ...)
 
     GAN:
-    1. Instead of random latent spaces, random inputs (env_states) are generated
-    2. Instead of reconstructions, latent spaces are fed into the discriminator
+    1. Additional GAN Network (working with the encoder instead of the decoder)
     """
 
-    def __init__(self, env, **kwargs):
+    def __init__(self, env, data, latent_dim, autoencoder_loss, **kwargs):
         """
         :param env: MazeEnv
             MazeEnv object initialized with the same maze & config that was used to generate the dataset.
         """
+        super().__init__(**kwargs)
         self.nr_valid_tiles = np.count_nonzero(env.maze.to_impassable() == 0)
         self.nr_tiles = env.maze.size[0] * env.maze.size[1]
         self.env = env
-        super().__init__(
-            dataset=kwargs.get("dataset", "maze_memories"),
-            classification_dim=self.nr_valid_tiles,
-            **kwargs,
+        self.classification_dim = self.nr_valid_tiles + self.env.action_space.n + 1
+        self.latent_dim = latent_dim
+        self.autoencoder_loss = autoencoder_loss
+        (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = data
+
+        # Build Autoencoder
+        self.encoder, self.decoder, self.autoencoder = self.build_autoencoder(
+            encoder_input_tensors=[
+                Input(shape=self.nr_valid_tiles, name="state"),
+                Input(shape=self.env.action_space.n, name="action"),
+            ],
+            encoder_output_layers=[
+                Dense(self.nr_valid_tiles, activation="softmax", name=f"expected_next_state"),
+                Dense(1, activation="tanh", name=f"expected_reward"),
+                Dense(self.env.action_space.n, activation="softmax", name=f"reconstructed_action"),
+                Dense(self.latent_dim, activation=LeakyReLU(alpha=0.2), name="latent_space"),
+            ],
+            ae_ignored_output_layer_names=["latent_space"],
+        )
+        self.autoencoder.compile(loss=self.autoencoder_loss, optimizer="adam", metrics=["accuracy"])
+
+        # Build an encoder and a decoder discriminator
+        self.dec_discriminator = self.build_discriminator(
+            input_tensors=[
+                Input(shape=self.nr_valid_tiles, name="reconstructed_state"),
+                Input(shape=self.env.action_space.n, name="recustructed_action"),
+            ],
+            output_layers=[Dense(1, activation="sigmoid", name="real_or_fake")],
+            model_name="dec_discriminator",
+        )
+        self.dec_discriminator.compile(
+            loss=["binary_crossentropy", "mean_squared_error"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"]
         )
 
-        # Create the special GAN network that works against the encoder instead of the decoder
-        self.special_discriminator = self.build_discriminator(
-            custom_input_shape=self.classification_dim, classification=False
+        self.enc_discriminator = self.build_discriminator(
+            input_tensors=[
+                Input(shape=self.nr_valid_tiles, name="state"),
+                Input(shape=self.nr_valid_tiles, name="expected_next_state"),
+                Input(shape=1, name="expected_reward"),
+                Input(shape=self.env.action_space.n, name="reconstructed_action"),
+            ],
+            output_layers=[Dense(1, activation="sigmoid", name="real_or_fake")],
+            model_name="enc_discriminator",
         )
-        self.special_discriminator.compile(
-            loss=["binary_crossentropy"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"]
-        )
-        self.special_discriminator.trainable = False
-        self.special_gan = self.build_special_gan(self.encoder, self.special_discriminator)
-        self.special_gan.compile(loss="binary_crossentropy", optimizer=Adam(lr=0.0002, beta_1=0.5))
+        self.enc_discriminator.compile(loss=["binary_crossentropy"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"])
 
-        # TODO: I think this can be in a method or so, but overwriting super class method results in error
-        path = "images/architecture"
-        plot_model(
-            self.special_discriminator,
-            f"{path}/special_discriminator_architecture.png",
-            show_shapes=True,
-            expand_nested=True,
-        )
-        plot_model(self.special_gan, f"{path}/special_gan_architecture.png", show_shapes=True, expand_nested=True)
+        # Prevent discriminator weight updates during GAN training
+        self.dec_discriminator.trainable = False
+        self.enc_discriminator.trainable = False
 
-    def build_special_gan(self, encoder, discriminator):
-        inputs = Input(shape=self.classification_dim + self.env.action_space.n, name="gan_inputs")
+        # Create the normal decoder GAN network that works against the decoder
+        self.dec_gan = self.build_gan(self.decoder, self.dec_discriminator, model_name="dec_gan")
+        self.dec_gan.compile(loss="binary_crossentropy", optimizer=Adam(lr=0.0002, beta_1=0.5))
+
+        # Create the special encoder GAN network that works against the encoder instead of the decoder
+        self.enc_gan = self.build_enc_gan(
+            self.encoder,
+            self.enc_discriminator,
+            ignored_layer_names=["q_values", "latent_space"],
+        )
+        self.enc_gan.compile(loss="binary_crossentropy", optimizer=Adam(lr=0.0002, beta_1=0.5))
+
+    def build_enc_gan(self, encoder, discriminator, ignored_layer_names: Optional[List[str]] = None) -> Model:
+        inputs = [Input(shape=tensor.shape[1:], name=tensor.name.split(":")[0]) for tensor in encoder.inputs]
         encoded = encoder(inputs)
-        # Only use the classification outputs from the encoder in the GAN setting
-        discriminated = discriminator(encoded[:, : self.classification_dim])
-        return Model(inputs, discriminated)
+        # Only use generated outputs as discriminator inputs that are not specified in 'ignored_layer_names'
+        discriminator_inputs = [inputs[0]]
+        discriminator_inputs.extend(
+            [output for output in encoded if output.name.split("/")[1] not in ignored_layer_names]
+            if ignored_layer_names
+            else encoded
+        )
+        discriminated = discriminator(discriminator_inputs)
+        return Model(inputs, discriminated, name="enc_gan")
+
+    def train_autoencoder(self, **kwargs):
+        env_state = np.array([*self.x_train_norm[:, 0]])
+        action = np.array([*self.x_train_norm[:, 1]])
+        inputs = np.concatenate((env_state, action), axis=1)
+        next_env_state = np.array([*self.y_train[:, 1]])
+        reward = np.array([*self.y_train[:, 0]]).reshape(-1, 1)
+
+        self.autoencoder.fit([env_state, action], [next_env_state, reward, action, [env_state, action]], **kwargs)
+
+    def get_random_episodes_from_dataset(self, n):
+        ix = randint(0, self.x_train_norm.shape[0], n)
+
+        env_state = np.array([*self.x_train_norm[ix, 0]])
+        action = np.array([*self.x_train_norm[ix, 1]])
+        next_env_state = np.array([*self.y_train[ix, 1]])
+        reward = np.array([*self.y_train[ix, 0]]).reshape(-1, 1)
+        done = np.array([*self.y_train[ix, 2]]).reshape(-1, 1)
+
+        return env_state, action, reward, next_env_state, done
+
+    def train(self, epochs: int, batch_size: int, steps_per_epoch: int, train_encoder: bool):
+        half_batch = int(batch_size / 2)
+        # manually enumerate epochs
+        for i in range(epochs):
+            # enumerate batches over the training set
+            for j in range(steps_per_epoch):
+                """ Discriminator training """
+                # create training set for the discriminator
+                env_state, action, reward, next_env_state, _ = self.get_random_episodes_from_dataset(n=half_batch)
+                pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict(
+                    [env_state, action]
+                )
+                real_inputs = [env_state, next_env_state, reward, action]
+                fake_inputs = [env_state, pred_next_env_state, pred_reward, reconstructed_action]
+                real_labels, fake_labels = (np.ones(shape=(half_batch, 1)), np.zeros(shape=(half_batch, 1)))
+                x_discriminator = [
+                    np.array([*env_state, *env_state]),
+                    np.array([*next_env_state, *pred_next_env_state]),
+                    np.array([*reward, *pred_reward]),
+                    np.array([*action, *reconstructed_action]),
+                ]
+                labels = np.vstack((real_labels, fake_labels))
+                # One-sided label smoothing (not sure if it makes sense in rl setting)
+                # labels[:half_batch] = 0.9
+                # update discriminator model weights
+                d_loss, _ = self.enc_discriminator.train_on_batch(x_discriminator, labels)
+
+                """ Autoencoder training """
+                # this might result in discriminator outperforming the encoder depending on architecture or vice versa
+                if train_encoder:
+                    self.autoencoder.train_on_batch(
+                        [env_state, action], [next_env_state, reward, action, [env_state, action]]
+                    )
+
+                """ Generator training (discriminator weights deactivated!) """
+                # prepare points in latent space as input for the generator
+                env_state, action, _, _, _ = self.generate_random_episodes(get_obj=False, n=batch_size)
+                action_one_hot = tf.keras.utils.to_categorical(action, num_classes=self.env.action_space.n)
+                # create inverted labels for the fake samples (because generator goal is to trick the discriminator)
+                # so our objective (label) is 1 and if discriminator says 1 we have an error of 0 and vice versa
+                real_labels = np.ones((batch_size, 1))
+                # update the encoder via the discriminator's error
+                g_loss = self.enc_gan.train_on_batch([env_state, action_one_hot], real_labels)
+
+                # summarize loss on this batch
+                print(
+                    f">{i + 1}, {j + 1:0{len(str(steps_per_epoch))}d}/{steps_per_epoch}, d={d_loss:.3f}, g={g_loss:.3f}"
+                )
+            self.summarize_performance()
+
+    def summarize_performance(self, n=100):
+        env_state, action, reward, next_env_state, _ = self.generate_random_episodes(get_obj=False, n=n)
+        action = tf.keras.utils.to_categorical(action, num_classes=self.env.action_space.n)
+        pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict([env_state, action])
+        real_inputs = [env_state, next_env_state, reward, action]
+        fake_inputs = [env_state, pred_next_env_state, pred_reward, reconstructed_action]
+        # evaluate discriminator on real examples
+        _, acc_real = self.enc_discriminator.evaluate(real_inputs, np.ones(shape=(n, 1)), verbose=0)
+        # evaluate discriminator on fake examples
+        _, acc_fake = self.enc_discriminator.evaluate(fake_inputs, np.zeros(shape=(n, 1)), verbose=0)
+        # summarize discriminator performance
+        print(f">Accuracy real: {acc_real * 100:.0f}%%, fake: {acc_fake * 100:.0f}%%")
+
+    ####################################################################################################################
+    """ Methods used for visualization """
+    ####################################################################################################################
+
+    def save_model_architecture_images(
+        self, models: Optional[List[Model]] = None, path: str = "images/epn_rl/architecture"
+    ):
+        models = models if models is not None else []
+        models.extend(
+            [
+                self.encoder,
+                self.decoder,
+                self.autoencoder,
+                self.dec_discriminator,
+                self.enc_discriminator,
+                self.dec_gan,
+                self.enc_gan,
+            ]
+        )
+        super().save_model_architecture_images(models, path)
 
     def _generate_random_episode(self, get_obj):
         """Generates a random episode consisting of (env_state, action, reward, next_env_state, done).
@@ -121,66 +265,21 @@ class EntropyPropagationNetworkRL(EntropyPropagationNetwork):
         inputs = np.concatenate((env_state, action_one_hot), axis=1)
         return inputs
 
-    def train(self, epochs=5, batch_size=2, steps_per_epoch=100, train_encoder=True):
-        half_batch = int(batch_size / 2)
-        # manually enumerate epochs
-        for i in range(epochs):
-            # enumerate batches over the training set
-            for j in range(steps_per_epoch):
-                """ Discriminator training """
-                # create training set for the discriminator
-                env_state, action, _, _, _ = self.generate_random_episodes(get_obj=False, n=half_batch)
-                pred = self.predict_next_env_state_and_latent_space(env_state, action)
-                next_env_state_pred = pred[:, : self.nr_valid_tiles]
-                real_labels, fake_labels = (np.ones(shape=(half_batch, 1)), np.zeros(shape=(half_batch, 1)))
-                x_discriminator = np.vstack((env_state, next_env_state_pred))
-                labels = np.vstack((real_labels, fake_labels))
-                # One-sided label smoothing (not sure if it makes sense in rl setting)
-                # labels[:half_batch] = 0.9
-                # update discriminator model weights
-                d_loss, _ = self.special_discriminator.train_on_batch(x_discriminator, labels)
-
-                """ Generator training (discriminator weights deactivated!) """
-                # prepare points in latent space as input for the generator
-                env_state, action, _, _, _ = self.generate_random_episodes(get_obj=False, n=batch_size)
-                env_state = self.env_state_and_action_to_inputs(env_state, action)
-                # create inverted labels for the fake samples (because generator goal is to trick the discriminator)
-                # so our objective (label) is 1 and if discriminator says 1 we have an error of 0 and vice versa
-                real_labels = np.ones((batch_size, 1))
-                # update the encoder via the discriminator's error
-                g_loss = self.special_gan.train_on_batch(env_state, real_labels)
-
-                """ Autoencoder training """
-                # this might result in the discriminator outperforming the encoder depending on architecture
-                # TODO: not working at the moment cause we need env_state and next_env_state from the dataset instead of
-                # being generated
-                # self.autoencoder.train_on_batch(env_state, [next_env_state, env_state]) if train_encoder else None
-
-                # summarize loss on this batch
-                print(
-                    f">{i + 1}, {j + 1:0{len(str(steps_per_epoch))}d}/{steps_per_epoch}, d={d_loss:.3f}, g={g_loss:.3f}"
-                )
-            self.summarize_performance(i)
-
-    def summarize_performance(self, epoch, n=100):
-        env_state, action, _, _, _ = self.generate_random_episodes(get_obj=False, n=n)
-        pred = self.predict_next_env_state_and_latent_space(env_state, action)
-        next_env_state_pred = pred[:, : self.nr_valid_tiles]
-        # evaluate discriminator on real examples
-        _, acc_real = self.special_discriminator.evaluate(env_state, np.ones(shape=(n, 1)), verbose=0)
-        # evaluate discriminator on fake examples
-        _, acc_fake = self.special_discriminator.evaluate(next_env_state_pred, np.zeros(shape=(n, 1)), verbose=0)
-        # summarize discriminator performance
-        print(f">Accuracy real: {acc_real * 100:.0f}%%, fake: {acc_fake * 100:.0f}%%")
-
-    def visualize_trained_autoencoder_to_file(self, state, n_samples=10, path="images/plots"):
+    def visualize_autoencoder_predictions_to_file(self, state, n_samples=10, path="images/epn_rl/plots"):
         width = n_samples
-        height = 4
+        height = 5
         plt.figure(figsize=(width, height))
         for idx in range(n_samples):
             env_state_obj, action, _, _, _ = self._generate_random_episode(get_obj=True)
-            inputs = self.env_state_and_action_to_inputs(env_state_obj.to_valid_obs(), np.array(action).reshape(1, -1))
-            [pred_next_env_state, reconstruction] = self.autoencoder.predict(inputs)
+            env_state = env_state_obj.to_valid_obs().reshape(1, -1)
+            action_one_hot = tf.keras.utils.to_categorical(action, num_classes=self.env.action_space.n).reshape(1, -1)
+
+            [
+                pred_next_env_state,
+                pred_reward,
+                reconstructed_action,
+                (dec_reconstructed_state, dec_reconstructed_action),
+            ] = self.autoencoder.predict([env_state, action_one_hot])
 
             # Sampled maze state + action
             add_subplot(image=env_state_obj.to_rgb(), n_cols=height, n_rows=width, index=1 + idx)
@@ -188,16 +287,26 @@ class EntropyPropagationNetworkRL(EntropyPropagationNetwork):
 
             # Sampled maze state + action with next state prediction values
             add_subplot(image=env_state_obj.to_rgb(), n_cols=height, n_rows=width, index=1 + idx + n_samples)
+            plt.annotate(round(float(pred_reward), 2), xy=(0.25, -0.5), fontsize="small")
             annotate_maze(pred_next_env_state[0], env_state_obj)
 
-            # Reconstructed maze state + action
-            add_subplot(image=env_state_obj.to_rgb(), n_cols=height, n_rows=width, index=1 + idx + 2 * n_samples)
-            annotate_maze(reconstruction[0][: -self.env.action_space.n], env_state_obj)
-            actions_one_hot = reconstruction[0][-self.env.action_space.n :]
+            # Encoder Action reconstructions
             annotate_action_values(
                 n_cols=height,
                 n_rows=width,
-                index=1 + idx + 3 * n_samples,
+                index=1 + idx + 2 * n_samples,
+                action_names=self.env.motions._fields,
+                values=reconstructed_action[0],
+            )
+
+            # Reconstructed maze state + action (decoder)
+            add_subplot(image=env_state_obj.to_rgb(), n_cols=height, n_rows=width, index=1 + idx + 3 * n_samples)
+            annotate_maze(dec_reconstructed_state[0], env_state_obj)
+            actions_one_hot = dec_reconstructed_action[0]
+            annotate_action_values(
+                n_cols=height,
+                n_rows=width,
+                index=1 + idx + 4 * n_samples,
                 action_names=self.env.motions._fields,
                 values=actions_one_hot,
             )
@@ -225,4 +334,4 @@ def annotate_action_values(n_cols, n_rows, index, action_names, values):
     subplot = plt.subplot(n_cols, n_rows, index)
     subplot.axis("off")
     for idx in range(len(action_names)):
-        subplot.text(0, 0.5 - idx / 4, f"{action_names[idx]}: {str(np.round(values[idx], 2))}", fontsize="x-small")
+        subplot.text(0, 0.75 - idx / 4, f"{action_names[idx]}: {str(np.round(values[idx], 2))}", fontsize="x-small")

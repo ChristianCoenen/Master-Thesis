@@ -1,407 +1,286 @@
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras import layers
-from tensorflow.keras.layers import Input, Dense, LeakyReLU, Flatten, Reshape, concatenate, Dropout
-from tensorflow.keras.models import Model
-from tensorflow.keras.utils import to_categorical, plot_model
-from numpy.random import randint
-from numpy import concatenate, zeros, ones
-from epn.custom_layers import DenseTranspose
-from epn import datasets
-from pathlib import Path
-from epn.helper import add_subplot, save_plot_as_image
+import abc
 import tensorflow as tf
-import matplotlib.pyplot as plt
-import numpy as np
-import math
+from typing import List, Tuple, Optional
+from tensorflow.keras.layers import Layer, Input, Flatten, Dense, LeakyReLU, concatenate, Reshape, Dropout
+from tensorflow.keras.models import Model
+from tensorflow.keras.utils import plot_model
+from tensorflow import Tensor
+from pathlib import Path
+from epn.custom_layers import DenseTranspose
 
 
-class EntropyPropagationNetwork:
-    """
-    A class implementing the Entropy Propagation Network architecture consisting of:
+class EPNetwork:
+    """ The entropy propagation base class. It defines the base architecture and is highly customizable. """
 
-    1. Encoder and Decoder Model (Decoder will mirror the encoder layers) (and weights if weight sharing is activated)
-    2. Autoencoder model which is constructed by combining the Encoder model with the Decoder model
-    3. Discriminator model
-    4. GAN model which is constructed by combining the Decoder with the Discriminator model
-
-    Note that the Decoder can also be referenced as Generator when generating fake samples.
-    """
-
-    def __init__(
-        self,
-        dataset="mnist",
-        dataset_path=None,
-        shuffle_data=False,
-        weight_sharing=True,
-        encoder_dims=None,
-        latent_dim=40,
-        classification_dim=10,
-        discriminator_dims=None,
-        autoencoder_loss=None,
-        graphviz_installed=False,
-    ):
+    def __init__(self, weight_sharing: bool, encoder_dims: List[int], discriminator_dims: List[int]):
         """
-        :param dataset: str
-            Selects the underlying dataset.
-            Valid values: ['mnist', 'fashion_mnist', 'cifar10', 'maze_memories']
-        :param dataset_path: str
-            Path to the dataset that is used. Currently only required when using 'maze_memories' as dataset.
-        :param shuffle_data: bool
-            Whether to shuffle the dataset when requesting it from the datasets class.
-            Currently only used when using 'maze_memories' as dataset.
-        :param weight_sharing: bool
+        :param weight_sharing:
             If set to true, the decoder will used the weights created on the encoder side using DenseTranspose layers
-        :param encoder_dims: [int]
+        :param encoder_dims:
             Each value (x) represents one hidden encoder layer with x neurons.
-        :param latent_dim: int
-            Number of latent space neurons (bottleneck layer in the Autoencoder)
-        :param classification_dim: int
-            Output neurons to classify the inputs based on their label
-            Needs to be of same dim as the number of output labels.
-            Is not automatically generated based on dataset, because it might be variable for Reinforcement Learning
-        :param discriminator_dims: [int]
+        :param discriminator_dims:
             Each value (x) represents one hidden layer with x neurons. By default, the discriminator network will
             mimic the structure of the hidden encoder layers (since the generator has the same structure as the encoder,
             the discriminator will and decoder are of the same size which is mostly good in an adversarial setting).
-        :param autoencoder_loss: [str, str]
-            This parameter allows to define the classification and reconstruction loss functions for the autoencoder.
-        :param graphviz_installed: bool
-            If graphviz is installed and this parameter set to true, images of the model architectures are generated
-            and saved under './images/architecture'
         """
-
         self.weight_sharing = weight_sharing
-        # default None because of side effects with mutable default values
-        self.encoder_dims = [100] if encoder_dims is None else encoder_dims
-        self.discriminator_dims = self.encoder_dims if discriminator_dims is None else discriminator_dims
-        self.autoencoder_loss = (
-            ["mean_squared_error", "binary_crossentropy"] if autoencoder_loss is None else autoencoder_loss
-        )
+        self.encoder_dims = encoder_dims
+        self.discriminator_dims = discriminator_dims
 
-        self.latent_dim = latent_dim
-        self.classification_dim = classification_dim
-        self.dataset = dataset
+    def _build_encoder(
+        self,
+        input_tensors: List[Tensor],
+        output_layers: List[Layer],
+        model_name: Optional[str] = "encoder",
+    ) -> Model:
+        """
+        This class creates an encoder model with x encoder layers and y output layers.
 
-        if dataset == "mnist":
-            (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_mnist()
-        elif dataset == "fashion_mnist":
-            (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_mnist(fashion=True)
-        elif dataset == "cifar10":
-            (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_cifar()
-        elif dataset == "maze_memories":
-            (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = datasets.get_maze_memories(
-                dataset_path, shuffle=shuffle_data
+        :param input_tensors
+            A list of keras tensors that are attached as input tensors to the encoder.
+        :param output_layers
+            Takes a list of valid keras layers and attaches them as output layers to the encoder.
+        :param model_name
+            The name of the model (useful for plots)
+
+        :returns: A model object.
+
+        """
+        # Define encoder layers
+        encoder_layers = []
+        for idx, encoder_layer in enumerate(self.encoder_dims):
+            encoder_layers.append(Dense(self.encoder_dims[idx], activation=LeakyReLU(alpha=0.2), name=f"encoder_{idx}"))
+
+        """ Build encoder model """
+        # Concatenate all input layers (if more than 1) and Flatten multidimensional inputs beforehand
+        flattened_input_tensors = []
+        for input_tensor in input_tensors:
+            flattened_input_tensors.append(Flatten()(input_tensor) if len(input_tensor.shape[1:]) > 1 else input_tensor)
+        encoder_inputs = flattened_input_tensors[0] if len(input_tensors) < 2 else concatenate(flattened_input_tensors)
+
+        x = encoder_inputs
+        for encoder_layer in encoder_layers:
+            x = encoder_layer(x)
+
+        # Create an output layer based on the last encoder layer for each passed layer
+        built_output_layers = [output_layer(x) for output_layer in output_layers]
+
+        return Model(input_tensors, outputs=built_output_layers, name=model_name)
+
+    def _build_decoder(
+        self,
+        encoder: Model,
+        model_name: Optional[str] = "decoder",
+    ) -> Model:
+        """This class creates an decoder model that clones the encoder architecture.
+
+        :param encoder
+            A model object that represents the encoder.
+        :param model_name
+            The name of the model (useful for plots)
+
+        :returns: A model object.
+
+        """
+        hidden_encoder_layers = [
+            layer for layer in encoder.layers if layer.name not in encoder.output_names and hasattr(layer, "kernel")
+        ]
+        output_encoder_layers = encoder.layers[-(len(encoder.outputs)) :]
+
+        # Build decoder model
+        decoder_inputs = [Input(shape=tensor.shape[-1], name=tensor.name.split("/")[0]) for tensor in encoder.outputs]
+        x = decoder_inputs[0] if len(decoder_inputs) < 2 else concatenate(decoder_inputs)
+
+        # Hidden layers
+        if self.weight_sharing:
+            x = DenseTranspose(dense_layers=output_encoder_layers, activation=LeakyReLU(alpha=0.2), name=f"decoder_0")(
+                x
             )
+            for idx, encoder_layer in enumerate(reversed(hidden_encoder_layers[1:])):
+                x = DenseTranspose(
+                    dense_layers=[encoder_layer],
+                    activation=LeakyReLU(alpha=0.2),
+                    name=f"decoder_{idx + 1}",
+                )(x)
         else:
-            raise ValueError("Unknown dataset!")
+            for idx, encoder_layer in enumerate(reversed(hidden_encoder_layers[1:])):
+                x = Dense(
+                    units=encoder_layer.input_shape[-1],
+                    activation=LeakyReLU(alpha=0.2),
+                    name=f"decoder_{idx}",
+                )(x)
 
-        self.input_shape = self.x_train_norm.shape[1:]
+        # Output layers
+        # TODO: this part is not optimal and is a bit messy / hard to understand, but I don't see another solution.
+        # What's happening here is that decoder outputs are basically the same as incoder inputs, so we iterate through
+        # the encoder inputs and create decoder layers. Because encoder inputs are concatenated and there is no direct
+        # split in tensorflow, the weights are sliced to ensure that weight sharing is still working
+        outputs = []
+        encoder_layer = hidden_encoder_layers[0]
+        counter = 0
+        for input_tensor in encoder.inputs:
+            neurons = Flatten()(input_tensor).shape[-1]
+            if self.weight_sharing:
+                output = DenseTranspose(
+                    dense_layers=[encoder_layer],
+                    activation="sigmoid",
+                    custom_weights=tf.Variable(encoder_layer.weights[0][counter : counter + neurons]),
+                    name=f"{input_tensor.name.split(':')[0]}",
+                )(x)
+            else:
+                output = Dense(
+                    units=Flatten()(input_tensor).shape[-1],
+                    activation="sigmoid",
+                    name=f"{input_tensor.name.split(':')[0]}",
+                )(x)
+            outputs.append(Reshape(encoder.input_shape[1:])(output) if len(encoder.input_shape[1:]) > 1 else output)
+            counter += neurons
 
-        self.discriminator = self.build_discriminator()
-        self.discriminator.compile(
-            loss=["binary_crossentropy", "mean_squared_error"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"]
+        # outputs = Reshape(encoder.input_shape[1:])(x) if len(encoder.input_shape[1:]) > 1 else x
+        return Model(decoder_inputs, outputs=outputs, name=model_name)
+
+    def build_autoencoder(
+        self,
+        encoder_input_tensors: List[Tensor],
+        encoder_output_layers: List[Layer],
+        ae_ignored_output_layer_names: Optional[List[str]] = None,
+        model_name: Optional[str] = "autoencoder",
+    ) -> Tuple[Model, Model, Model]:
+        """
+        Creates an autoencoder by calling the build_encoder & build_decoder method and concatenating the returned models
+
+        :param encoder_input_tensors
+            A list of keras tensors that are attached as input tensors to the encoder.
+        :param encoder_output_layers
+            A list of valid keras layers that are attached as output layers to the encoder.
+        :param ae_ignored_output_layer_names
+            A list of layer names that are ignored as autoencoder outputs. If empty, the decoder will use all output
+            layers of the encoder + the decoder's output, which is always used.
+        :param model_name
+            The name of the model (useful for plots)
+
+        :returns: Three model objects (encoder, decoder, autoencoder).
+
+        """
+        # Build autoencoder
+        encoder = self._build_encoder(encoder_input_tensors, encoder_output_layers)
+        autoencoder_inputs = [
+            Input(shape=tensor.shape[1:], name=tensor.name.split(":")[0]) for tensor in encoder.inputs
+        ]
+        encoded = encoder(autoencoder_inputs)
+        decoder = self._build_decoder(encoder)
+        decoded = decoder(encoded)
+        # Ensure that encoded is a list (if encoder has only 1 output, encoded is a Tensor instead of a List of Tensors)
+        encoded = [encoded] if type(encoded) is not list else encoded
+        # Only use encoder outputs as autoencoder outputs that are not specified in 'ae_ignored_output_layer_names'
+        autoencoder_outputs = (
+            [output for output in encoded if output.name.split("/")[1] not in ae_ignored_output_layer_names]
+            if ae_ignored_output_layer_names
+            else encoded
         )
+        autoencoder = Model(autoencoder_inputs, outputs=[*autoencoder_outputs, decoded], name=model_name)
+        return encoder, decoder, autoencoder
 
-        self.encoder, self.decoder, self.autoencoder = self.build_autoencoder()
-
-        self.autoencoder.compile(loss=self.autoencoder_loss, optimizer="adam", metrics=["accuracy"])
-
-        # GAN model (decoder & discriminator) - For the GAN model we will only train the generator
-        self.discriminator.trainable = False
-        self.gan = self.build_gan()
-        self.gan.compile(loss="binary_crossentropy", optimizer=Adam(lr=0.0002, beta_1=0.5))
-
-        # only set graphviz_installed to true if you have it installed (see README)
-        self.save_model_architecture_images() if graphviz_installed else None
-
-    def build_discriminator(self, custom_input_shape=None, classification=True):
-        """Creates a discriminator model.
+    def build_discriminator(
+        self,
+        input_tensors: List[Tensor],
+        output_layers: List[Layer],
+        model_name: Optional[str] = "discriminator",
+    ):
+        """
+        Creates a discriminator model.
 
         Leaky ReLU is recommended for Discriminator networks.
         'Within the discriminator we found the leaky rectified activation to work well ...'
             — Unsupervised Representation Learning with Deep Convolutional Generative Adversarial Networks, 2015.
 
-        :return: Discriminator model
-        """
-        if not custom_input_shape:
-            inputs = Input(shape=self.input_shape, name="discriminator_inputs")
-        else:
-            inputs = Input(shape=custom_input_shape, name="discriminator_inputs")
+        Additionally, each layer is followed by a dropout layer of strength 0.3. This is a commonly used addition for
+        discriminator networks to prevent them from outperforming the generator during training.
 
-        x = Flatten()(inputs)
+        :param input_tensors
+            A list of keras tensors that are attached as input tensors to the discriminator.
+        :param output_layers
+            Takes a list of valid keras layers and attaches them as output layers to the discriminator.
+        :param model_name
+            The name of the model (useful for plots)
+
+        :return: A model object.
+        """
+
+        """ Build discriminator model """
+        # Concatenate all input layers (if more than 1) and Flatten multidimensional inputs beforehand
+        flattened_input_tensors = []
+        for input_tensor in input_tensors:
+            flattened_input_tensors.append(Flatten()(input_tensor) if len(input_tensor.shape[1:]) > 1 else input_tensor)
+
+        discriminator_inputs = (
+            flattened_input_tensors[0] if len(input_tensors) < 2 else concatenate(flattened_input_tensors)
+        )
+        x = discriminator_inputs
 
         for layer_dim in self.discriminator_dims:
             x = Dense(layer_dim, activation=LeakyReLU(alpha=0.2))(x)
             x = Dropout(0.3)(x)
 
-        real_or_fake = Dense(1, activation="sigmoid", name="real_or_fake")(x)
-        if classification:
-            classification = Dense(self.classification_dim, activation="softmax", name="classification")(x)
-            return Model(inputs, outputs=[real_or_fake, classification], name="discriminator")
-        else:
-            return Model(inputs, outputs=real_or_fake, name="discriminator")
+        # Create an output layer based on the last encoder layer for each passed layer
+        built_output_layers = [output_layer(x) for output_layer in output_layers]
 
-    def build_autoencoder(self):
-        """Creates an encoder, decoder and autoencoder model.
+        return Model(input_tensors, outputs=built_output_layers, name=model_name)
 
-        :return: Encoder model, Decoder mode, Autoencoder model
+    def build_gan(
+        self,
+        generator: Model,
+        discriminator: Model,
+        ignored_layer_names: Optional[List[str]] = None,
+        model_name: Optional[str] = "gan",
+    ) -> Model:
         """
-        # Define shared layers
-        encoder_layers = []
-        for idx, encoder_layer in enumerate(self.encoder_dims):
-            encoder_layers.append(Dense(self.encoder_dims[idx], activation=LeakyReLU(alpha=0.2), name=f"encoder_{idx}"))
-        encoder_to_classification = Dense(
-            self.classification_dim, activation="softmax", name=f"encoder_{len(self.encoder_dims)}_classification"
+        Defines a GAN consisting of a generator and a discriminator model. The GAN is used to train the generator.
+
+        :param generator
+            A model object that represents a generator / decoder.
+        :param discriminator
+            A model object that represents a discriminator.
+        :param ignored_layer_names
+            A list of layer names that are ignored as gan outputs. If empty, the gan will use all output
+            layers of the generator / decoder + the discriminator's output, which is always used.
+        :param model_name
+            The name of the model (useful for plots)
+
+        :return: A model object.
+        """
+        inputs = [Input(shape=tensor.shape[-1], name=tensor.name.split(":")[0]) for tensor in generator.inputs]
+        generated = generator(inputs)
+        # Only use generated outputs as discriminator inputs that are not specified in 'ignored_layer_names'
+        discriminator_inputs = (
+            [output for output in generated if output.name.split("/")[1] not in ignored_layer_names]
+            if ignored_layer_names
+            else generated
         )
-        encoder_to_latent_space = Dense(
-            self.latent_dim, activation=LeakyReLU(alpha=0.2), name=f"encoder_{len(self.encoder_dims)}_latent_space"
-        )
+        discriminated = discriminator(discriminator_inputs)
+        return Model(inputs, discriminated, name=model_name)
 
-        # Build encoder model
-        encoder_inputs = Input(shape=self.input_shape, name="encoder_input")
-        x = Flatten()(encoder_inputs)
-
-        for idx, encoder_layer in enumerate(encoder_layers):
-            x = encoder_layers[idx](x)
-        classification = encoder_to_classification(x)
-        latent_space = encoder_to_latent_space(x)
-        # Merge classification neurons and latent space neurons into a single vector via concatenation
-        encoded = layers.concatenate([classification, latent_space])
-        encoder_model = Model(encoder_inputs, outputs=encoded, name="encoder")
-
-        # Build decoder side
-        decoder_inputs = Input(shape=self.latent_dim + self.classification_dim, name="decoder_input")
-        if self.weight_sharing:
-            # order seems to matter, however the inverse order seems to perform better
-            # might be because of the 'transpose_b=True' in DenseTranspose class => inverse order might be correct
-            x = DenseTranspose(
-                [encoder_to_latent_space, encoder_to_classification], activation=LeakyReLU(alpha=0.2), name="decoder_0"
-            )(decoder_inputs)
-            for idx, encoder_layer in enumerate(reversed(encoder_layers)):
-                if idx == len(encoder_layers) - 1:
-                    x = DenseTranspose([encoder_layer], activation="sigmoid", name=f"decoder_{1 + idx}")(x)
-                else:
-                    x = DenseTranspose([encoder_layer], activation=LeakyReLU(alpha=0.2), name=f"decoder_{1 + idx}")(x)
-        else:
-            for idx, encoder_layer in enumerate(reversed(encoder_layers)):
-                if idx == 0:
-                    x = Dense(encoder_layer.output_shape[-1], activation="sigmoid", name=f"decoder_{idx}")(
-                        decoder_inputs
-                    )
-                else:
-                    x = Dense(encoder_layer.output_shape[-1], activation="sigmoid", name=f"decoder_{idx}")(x)
-            x = Dense(np.prod(self.input_shape), activation="sigmoid", name=f"decoder_{len(self.encoder_dims)}")(x)
-
-        outputs = Reshape(self.input_shape, name="reconstructions")(x)
-        decoder_model = Model(decoder_inputs, outputs=outputs, name="decoder")
-
-        # Build autoencoder
-        encoded_repr = encoder_model(encoder_inputs)
-        reconstructed_img = decoder_model(encoded_repr)
-        autoencoder_model = Model(encoder_inputs, outputs=[classification, reconstructed_img], name="autoencoder")
-        return encoder_model, decoder_model, autoencoder_model
-
-    # define the combined generator and discriminator model, for updating the generator
-    def build_gan(self):
-        """Defines the combined decoder and discriminator model, for updating the decoder
-
-        :return:
-        """
-        # connect them
-        inputs = Input(shape=self.latent_dim + self.classification_dim, name="gan_inputs")
-        decoded = self.decoder(inputs)
-        discriminated = self.discriminator(decoded)
-        return Model(inputs, discriminated)
-
-    def generate_latent_and_classification_points(self, n_samples):
-        # generate random points in the latent space
-        x_latent = np.random.normal(0, 1, size=(n_samples, self.latent_dim))
-        labels = randint(self.classification_dim, size=n_samples)
-        labels = to_categorical(labels, num_classes=self.classification_dim)
-        x_input = concatenate((x_latent, labels), axis=1)
-        return x_input, labels
-
-    def generate_fake_samples(self, n_samples):
-        """Generates fake samples for
-
-        :param n_samples: int
-            Number of samples that needs to be generated.
-        :return:
-            x: Random samples generator by the decoder (generator)
-            y: Array with length of n_samples containing zeros (to indicate that those are fake samples)
-            z: Array with length of n_samples showing the objective for the decoder for each samples
-               Helps debugging whether the generated samples match the classification input (e.g. generate a 6)
-        """
-        # generate random points in the latent space
-        x_inputs, labels = self.generate_latent_and_classification_points(n_samples)
-        # predict outputs
-        x = self.decoder.predict(x_inputs)
-        # create 'fake' class labels (0)
-        y = zeros((n_samples, 1))
-        return x, y, labels
-
-    def generate_real_samples(self, n_samples):
-        """This method samples from the training data set to show real samples to the discriminator.
-
-        :param n_samples: int
-            Number of samples that needs to be extracted.
-        :return:
-            x: Random samples generator by the decoder (generator)
-            y: Array with length of n_samples containing zeros (to indicate that those are fake samples)
-        """
-        # choose random instances
-        ix = randint(0, self.x_train_norm.shape[0], n_samples)
-        # retrieve selected images
-        x = self.x_train_norm[ix]
-        # generate 'real' class labels (1)
-        y = ones((n_samples, 1))
-        labels = self.y_train[ix]
-        return x, y, labels
-
+    @abc.abstractmethod
     def train_autoencoder(self, **kwargs):
-        # TODO: method name is not optimal (trained)
-        self.visualize_trained_autoencoder_to_file(state="pre_autoencoder_training")
-        self.autoencoder.fit(self.x_train_norm, [self.y_train, self.x_train_norm], **kwargs)
-        self.visualize_trained_autoencoder_to_file(state="post_autoencoder_training")
+        """ When using an epn architecture, it should always be possible to train the autoencoder separately """
+        pass
 
-    def train(self, epochs=5, batch_size=32, steps_per_epoch=100, train_encoder=True):
-        half_batch = int(batch_size / 2)
+    @abc.abstractmethod
+    def train(self, epochs: int, batch_size: int, steps_per_epoch: int, train_encoder: bool):
+        """ When using a epn architecture, a train function has to be provided """
+        pass
 
-        # manually enumerate epochs
-        for i in range(epochs):
-            # enumerate batches over the training set
-            for j in range(steps_per_epoch):
-                """ Discriminator training """
-                # create training set for the discriminator
-                # TODO: labels_real one hot size 10 and y_real is 0 / 1. I think naming is not optimal (got confused)
-                x_real, y_real, labels_real = self.generate_real_samples(n_samples=half_batch)
-                x_fake, y_fake, labels_fake = self.generate_fake_samples(n_samples=half_batch)
-                x_discriminator, y_discriminator = np.vstack((x_real, x_fake)), np.vstack((y_real, y_fake))
-                labels = np.vstack((labels_real, labels_fake))
-                # One-sided label smoothing
-                y_discriminator[:half_batch] = 0.9
-                # update discriminator model weights
-                d_loss, _, _, _, _ = self.discriminator.train_on_batch(x_discriminator, [y_discriminator, labels])
-
-                """ Generator training (discriminator weights deactivated!) """
-                # prepare points in latent space as input for the generator
-                x_gan, labels = self.generate_latent_and_classification_points(batch_size)
-                # create inverted labels for the fake samples (because generator goal is to trick the discriminator)
-                # so our objective (label) is 1 and if discriminator says 1 we have an error of 0 and vice versa
-                y_gan = ones((batch_size, 1))
-                # update the generator via the discriminator's error
-                g_loss, _, _ = self.gan.train_on_batch(x_gan, [y_gan, labels])
-
-                """ Autoencoder training """
-                # this might result in the discriminator outperforming the generator depending on architecture
-                self.autoencoder.train_on_batch(x_real, [labels_real, x_real]) if train_encoder else None
-
-                # summarize loss on this batch
-                print(
-                    f">{i + 1}, {j + 1:0{len(str(steps_per_epoch))}d}/{steps_per_epoch}, d={d_loss:.3f}, g={g_loss:.3f}"
-                )
-
-            # evaluate the model performance each epoch
-            self.summarize_performance(i)
-        self.save_reconstruction_plot_images(self.x_train_norm[10:20], state="post_gan_training")
-
-    def summarize_performance(self, epoch, n_samples=100):
-        """Evaluate the discriminator, plot generated images, save generator model
-
-        :param epoch: int
-            Current training epoch.
-        :param n_samples: int
-            Number of samples that are plotted.
-        :return:
-            None
+    def save_model_architecture_images(self, models: List[Model], path: str):
         """
-        # prepare real samples
-        x_real, y_real, _ = self.generate_real_samples(n_samples)
-        # evaluate discriminator on real examples
-        _, _, _, acc_real, _ = self.discriminator.evaluate(x_real, y_real, verbose=0)
-        # prepare fake examples
-        x_fake, y_fake, labels = self.generate_fake_samples(n_samples)
-        # evaluate discriminator on fake examples
-        _, _, _, acc_fake, _ = self.discriminator.evaluate(x_fake, y_fake, verbose=0)
-        # summarize discriminator performance
-        print(f">Accuracy real: {acc_real * 100:.0f}%%, fake: {acc_fake * 100:.0f}%%")
-        # save plot
-        self.save_fake_sample_plot_images(x_fake=x_fake, labels=labels, epoch=epoch)
+        Saves all passed models as PNGs into a defined subfolder. A common use case for this method is to call it
+        in the respective subclasses with the defined models.
 
-    def evaluate(self):
-        # Evaluates the autoencoder based on the test data
-        return self.autoencoder.evaluate(self.x_test_norm, [self.y_test, self.x_test_norm], verbose=0)
 
-    def save_model_architecture_images(self, path="images/architecture"):
-        """Saves all EPN model architectures as PNGs into a defined sub folder.
-
+        :param models:
         :param path: str
-            Relative path from the root directory
+            Relative path from the execution directory
         :return:
             None
         """
         Path(path).mkdir(parents=True, exist_ok=True)
-        plot_model(self.discriminator, f"{path}/discriminator_architecture.png", show_shapes=True, expand_nested=True)
-        plot_model(self.autoencoder, f"{path}/autoencoder_architecture.png", show_shapes=True, expand_nested=True)
-        plot_model(self.encoder, f"{path}/encoder_architecture.png", show_shapes=True, expand_nested=True)
-        plot_model(self.decoder, f"{path}/decoder_architecture.png", show_shapes=True, expand_nested=True)
-        plot_model(self.gan, f"{path}/gan_architecture.png", show_shapes=True, expand_nested=True)
-
-    def visualize_trained_autoencoder_to_file(self, state):
-        self.save_reconstruction_plot_images(self.x_train_norm[10:20], state)
-        self.save_fake_sample_plot_images()
-
-    def save_reconstruction_plot_images(self, samples, state, path="images/plots"):
-        """Pushes x samples through the autoencoder to generate & visualize reconstructions
-
-        :param samples:
-            Samples that matches the following shape [n_samples, autoencoder input shape]
-        :param path: str
-            Path to the directory where the plots are getting stored.
-        :return:
-            None
-        """
-        n_samples = samples.shape[0]
-        reconstructions = self.autoencoder.predict(samples)
-        plt.figure(figsize=(n_samples * 1.5, 3))
-        for image_index in range(n_samples):
-            # orig image
-            _ = add_subplot(image=samples[image_index, :, :, 0], n_cols=3, n_rows=n_samples, index=1 + image_index)
-            # reconstruction
-            plot_obj = add_subplot(
-                image=reconstructions[1][image_index, :, :, 0],
-                n_cols=3,
-                n_rows=n_samples,
-                index=1 + n_samples + image_index,
-            )
-            # label
-            plot_obj.annotate(str(np.argmax(reconstructions[0][image_index])), xy=(0, 0))
-
-        save_plot_as_image(path=path, filename=state)
-
-    def save_fake_sample_plot_images(self, x_fake=None, labels=None, epoch=-1, n_samples=100, path="images/plots"):
-        """Create and save a plot of generated images (reversed grayscale)
-
-            Useful to show if the generator is able to generate real looking images from random points.
-
-        :param x_fake:
-        :param labels:
-        :param epoch:
-        :param n_samples: int
-            Number of samples that should be generated and plotted.
-        :param path: str
-            Path to the directory where the plots are getting stored.
-        :return:
-        """
-        n_columns = math.ceil(math.sqrt(n_samples))
-        n_rows = math.ceil(n_samples / n_columns)
-        if x_fake is None or labels is None:
-            x_fake, _, labels = self.generate_fake_samples(n_samples)
-
-        labels_numerical = tf.argmax(labels, axis=1).numpy()
-        plt.figure(figsize=(n_columns, n_rows))
-        for i in range(n_samples):
-            plot_obj = add_subplot(image=x_fake[i, :, :, 0], n_cols=n_columns, n_rows=n_rows, index=1 + i)
-            plot_obj.annotate(str(labels_numerical[i]), xy=(0, 0))
-
-        save_plot_as_image(path=path, filename=f"generated_plot_e{epoch + 1:03d}.png")
+        [plot_model(m, f"{path}/{m.name}_architecture.png", show_shapes=True, expand_nested=True) for m in models]
