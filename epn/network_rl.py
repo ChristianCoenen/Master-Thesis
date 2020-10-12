@@ -79,7 +79,6 @@ class EPNetworkRL(EPNetwork):
             ],
             output_layers=[Dense(1, activation="sigmoid", name="real_or_fake")],
             model_name="enc_discriminator",
-            use_dropout_layers=False,
         )
         self.enc_discriminator.compile(
             loss=["binary_crossentropy"], optimizer=Adam(lr=0.0002, beta_1=0.5), metrics=["accuracy"]
@@ -136,6 +135,42 @@ class EPNetworkRL(EPNetwork):
 
         return position, env_state, action, reward, next_position, next_env_state, done
 
+    def generate_new_states(self, n: int):
+        position_arr = np.empty((n, self.env.maze.size[0] + self.env.maze.size[1]), dtype=int)
+        env_state_arr = np.zeros((n, self.nr_valid_tiles), dtype=int)
+        action_arr = np.empty((n, self.env.action_space.n), dtype=int)
+
+        counter = 0
+        while counter < n:
+            # Get new position, state, action
+            action = np.random.randint(0, self.env.action_space.n)
+            action_one_hot = tf.keras.utils.to_categorical(action, num_classes=self.env.action_space.n)
+            self.env.reset(randomize_start=True)
+            position = [obj for obj in self.env.maze.objects if obj.name == "agent"][0].positions[0]
+            position_1_one_hot = tf.keras.utils.to_categorical(position[0], num_classes=self.env.maze.size[0])
+            position_2_one_hot = tf.keras.utils.to_categorical(position[1], num_classes=self.env.maze.size[1])
+            position_one_hot = np.concatenate((position_1_one_hot, position_2_one_hot))
+            env_state_one_hot = self.env.maze.to_valid_obs()
+            random_x = [position_one_hot, env_state_one_hot, action_one_hot]
+
+            is_duplicate = False
+            for data_arr in self.x_train_norm:
+                if (
+                    np.array_equal(data_arr[0], random_x[0])
+                    and np.array_equal(data_arr[1], random_x[1])
+                    and np.array_equal(data_arr[2], random_x[2])
+                ):
+                    is_duplicate = True
+                    break
+
+            if not is_duplicate:
+                position_arr[counter] = random_x[0]
+                env_state_arr[counter] = random_x[1]
+                action_arr[counter] = random_x[2]
+                counter += 1
+
+        return position_arr, env_state_arr, action_arr
+
     def train(self, epochs: int, batch_size: int, steps_per_epoch: int, train_encoder: bool):
         half_batch = int(batch_size / 2)
         # manually enumerate epochs
@@ -147,8 +182,10 @@ class EPNetworkRL(EPNetwork):
                 r_res = self.get_episodes_from_dataset(n=half_batch, random=True)
                 r_position, r_env_state, r_action, r_reward, r_next_position, r_next_env_state, r_done = r_res
                 # get some fake episodes (env_state and action are still real but can be ones not present in dataset)
-                f_res = self.generate_random_episodes(get_obj=False, n=half_batch)
-                f_position, f_env_state, f_action, _, _, _, _ = f_res
+
+                # f_res = self.generate_random_episodes(get_obj=False, n=half_batch)
+                # f_position, f_env_state, f_action, _, _, _, _ = f_res
+                f_position, f_env_state, f_action = self.generate_new_states(n=half_batch)
                 pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict(
                     [f_position, f_env_state, f_action]
                 )
@@ -175,12 +212,14 @@ class EPNetworkRL(EPNetwork):
 
                 """ Generator training (discriminator weights deactivated!) """
                 # prepare points in latent space as input for the generator
-                position, env_state, action, _, _, _, _ = self.generate_random_episodes(get_obj=False, n=batch_size)
+                # f_res = self.generate_new_states(n=half_batch)
+                # position, env_state, action, _, _, _, _ = self.generate_random_episodes(get_obj=False, n=batch_size)
+                f_position, f_env_state, f_action = self.generate_new_states(n=batch_size)
                 # create inverted labels for the fake samples (because generator goal is to trick the discriminator)
                 # so our objective (label) is 1 and if discriminator says 1 we have an error of 0 and vice versa
                 real_labels = np.ones((batch_size, 1))
                 # update the encoder via the discriminator's error
-                g_loss = self.enc_gan.train_on_batch([position, env_state, action], real_labels)
+                g_loss = self.enc_gan.train_on_batch([f_position, f_env_state, f_action], real_labels)
 
                 # summarize loss on this batch
                 print(
@@ -193,8 +232,9 @@ class EPNetworkRL(EPNetwork):
         r_res = self.get_episodes_from_dataset(n=n, random=True)
         r_position, r_env_state, r_action, r_reward, r_next_position, r_next_env_state, r_done = r_res
         # get some fake episodes (env_state and action are still real but can be ones not present in dataset)
-        f_res = self.generate_random_episodes(get_obj=False, n=n)
-        f_position, f_env_state, f_action, _, _, _, _ = f_res
+        # f_res = self.generate_random_episodes(get_obj=False, n=n)
+        # f_position, f_env_state, f_action, _, _, _, _ = f_res
+        f_position, f_env_state, f_action = self.generate_new_states(n=n)
         pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict(
             [f_position, f_env_state, f_action]
         )
