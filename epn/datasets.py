@@ -37,5 +37,5 @@ def get_cifar():
 def get_maze_memories(path, test_size=0.2, shuffle=False):
     data = np.load(path, allow_pickle=True)
     np.random.shuffle(data) if shuffle else None
-    x_train, x_test, y_train, y_test = train_test_split(data[:, :2], data[:, 2:], test_size=test_size, shuffle=shuffle)
+    x_train, x_test, y_train, y_test = train_test_split(data[:, :3], data[:, 3:], test_size=test_size, shuffle=shuffle)
     return (x_train, y_train), (x_test, y_test)
