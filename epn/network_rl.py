@@ -143,19 +143,22 @@ class EPNetworkRL(EPNetwork):
             # enumerate batches over the training set
             for j in range(steps_per_epoch):
                 """ Discriminator training """
-                # create training set for the discriminator
-                res = self.get_episodes_from_dataset(n=half_batch, random=True)
-                position, env_state, action, reward, next_position, next_env_state, done = res
+                # get some real episodes
+                r_res = self.get_episodes_from_dataset(n=half_batch, random=True)
+                r_position, r_env_state, r_action, r_reward, r_next_position, r_next_env_state, r_done = r_res
+                # get some fake episodes (env_state and action are still real but can be ones not present in dataset)
+                f_res = self.generate_random_episodes(get_obj=False, n=half_batch)
+                f_position, f_env_state, f_action, _, _, _, _ = f_res
                 pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict(
-                    [position, env_state, action]
+                    [f_position, f_env_state, f_action]
                 )
                 real_labels, fake_labels = (np.ones(shape=(half_batch, 1)), np.zeros(shape=(half_batch, 1)))
                 x_discriminator = [
-                    np.array([*position, *position]),
-                    np.array([*env_state, *env_state]),
-                    np.array([*next_env_state, *pred_next_env_state]),
-                    np.array([*reward, *pred_reward]),
-                    np.array([*action, *reconstructed_action]),
+                    np.array([*r_position, *f_position]),
+                    np.array([*r_env_state, *f_env_state]),
+                    np.array([*r_next_env_state, *pred_next_env_state]),
+                    np.array([*r_reward, *pred_reward]),
+                    np.array([*r_action, *reconstructed_action]),
                 ]
                 labels = np.vstack((real_labels, fake_labels))
                 # One-sided label smoothing (not sure if it makes sense in rl setting)
@@ -166,9 +169,9 @@ class EPNetworkRL(EPNetwork):
                 """ Autoencoder training """
                 # this might result in discriminator outperforming the encoder depending on architecture or vice versa
                 if train_encoder:
-                    self.autoencoder.train_on_batch(
-                        [position, env_state, action], [next_env_state, reward, action, [position, env_state, action]]
-                    )
+                    inputs = [r_position, r_env_state, r_action]
+                    outputs = [r_next_env_state, r_reward, r_action, inputs]
+                    self.autoencoder.train_on_batch(inputs, outputs)
 
                 """ Generator training (discriminator weights deactivated!) """
                 # prepare points in latent space as input for the generator
@@ -186,20 +189,24 @@ class EPNetworkRL(EPNetwork):
             self.summarize_performance()
 
     def summarize_performance(self, n=100):
-        position, env_state, action, reward, next_position, next_env_state, _ = self.generate_random_episodes(
-            get_obj=False, n=n
-        )
+        # get some real episodes
+        r_res = self.get_episodes_from_dataset(n=n, random=True)
+        r_position, r_env_state, r_action, r_reward, r_next_position, r_next_env_state, r_done = r_res
+        # get some fake episodes (env_state and action are still real but can be ones not present in dataset)
+        f_res = self.generate_random_episodes(get_obj=False, n=n)
+        f_position, f_env_state, f_action, _, _, _, _ = f_res
         pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict(
-            [position, env_state, action]
+            [f_position, f_env_state, f_action]
         )
-        real_inputs = [position, env_state, next_env_state, reward, action]
-        fake_inputs = [position, env_state, pred_next_env_state, pred_reward, reconstructed_action]
+
+        real_inputs = [r_position, r_env_state, r_next_env_state, r_reward, r_action]
+        fake_inputs = [f_position, f_env_state, pred_next_env_state, pred_reward, reconstructed_action]
         # evaluate discriminator on real examples
         _, acc_real = self.enc_discriminator.evaluate(real_inputs, np.ones(shape=(n, 1)), verbose=0)
         # evaluate discriminator on fake examples
         _, acc_fake = self.enc_discriminator.evaluate(fake_inputs, np.zeros(shape=(n, 1)), verbose=0)
         # summarize discriminator performance
-        print(f">Accuracy real: {acc_real * 100:.0f}%%, fake: {acc_fake * 100:.0f}%%")
+        print(f">Accuracy real: {acc_real * 100:.0f}%, fake: {acc_fake * 100:.0f}%")
 
     ####################################################################################################################
     """ Methods used for visualization """
