@@ -43,6 +43,7 @@ class EPNetworkRL(EPNetwork):
         # Build Autoencoder
         self.encoder, self.decoder, self.autoencoder = self.build_autoencoder(
             encoder_input_tensors=[
+                Input(shape=self.env.maze.size[0] + self.env.maze.size[1], name="position"),
                 Input(shape=self.nr_valid_tiles, name="state"),
                 Input(shape=self.env.action_space.n, name="action"),
             ],
@@ -59,6 +60,7 @@ class EPNetworkRL(EPNetwork):
         # Build an encoder and a decoder discriminator
         self.dec_discriminator = self.build_discriminator(
             input_tensors=[
+                Input(shape=self.env.maze.size[0] + self.env.maze.size[1], name="reconstructed_position"),
                 Input(shape=self.nr_valid_tiles, name="reconstructed_state"),
                 Input(shape=self.env.action_space.n, name="recustructed_action"),
             ],
@@ -69,6 +71,7 @@ class EPNetworkRL(EPNetwork):
 
         self.enc_discriminator = self.build_discriminator(
             input_tensors=[
+                Input(shape=self.env.maze.size[0] + self.env.maze.size[1], name="position"),
                 Input(shape=self.nr_valid_tiles, name="state"),
                 Input(shape=self.nr_valid_tiles, name="expected_next_state"),
                 Input(shape=1, name="expected_reward"),
@@ -76,8 +79,11 @@ class EPNetworkRL(EPNetwork):
             ],
             output_layers=[Dense(1, activation="sigmoid", name="real_or_fake")],
             model_name="enc_discriminator",
+            use_dropout_layers=False,
         )
-        self.enc_discriminator.compile(loss=["binary_crossentropy"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"])
+        self.enc_discriminator.compile(
+            loss=["binary_crossentropy"], optimizer=Adam(lr=0.0002, beta_1=0.5), metrics=["accuracy"]
+        )
 
         # Prevent discriminator weight updates during GAN training
         self.dec_discriminator.trainable = False
@@ -99,7 +105,7 @@ class EPNetworkRL(EPNetwork):
         inputs = [Input(shape=tensor.shape[1:], name=tensor.name.split(":")[0]) for tensor in encoder.inputs]
         encoded = encoder(inputs)
         # Only use generated outputs as discriminator inputs that are not specified in 'ignored_layer_names'
-        discriminator_inputs = [inputs[0]]
+        discriminator_inputs = [inputs[0], inputs[1]]
         discriminator_inputs.extend(
             [output for output in encoded if output.name.split("/")[1] not in ignored_layer_names]
             if ignored_layer_names
@@ -109,24 +115,26 @@ class EPNetworkRL(EPNetwork):
         return Model(inputs, discriminated, name="enc_gan")
 
     def train_autoencoder(self, **kwargs):
-        env_state = np.array([*self.x_train_norm[:, 0]])
-        action = np.array([*self.x_train_norm[:, 1]])
-        inputs = np.concatenate((env_state, action), axis=1)
-        next_env_state = np.array([*self.y_train[:, 1]])
-        reward = np.array([*self.y_train[:, 0]]).reshape(-1, 1)
+        episodes = self.get_episodes_from_dataset(n=self.x_train_norm.shape[0], random=False)
+        position, env_state, action, reward, next_position, next_env_state, done = episodes
 
-        self.autoencoder.fit([env_state, action], [next_env_state, reward, action, [env_state, action]], **kwargs)
+        inputs = [position, env_state, action]
+        outputs = [next_env_state, reward, action, inputs]
 
-    def get_random_episodes_from_dataset(self, n):
-        ix = randint(0, self.x_train_norm.shape[0], n)
+        self.autoencoder.fit(inputs, outputs, **kwargs)
 
-        env_state = np.array([*self.x_train_norm[ix, 0]])
-        action = np.array([*self.x_train_norm[ix, 1]])
-        next_env_state = np.array([*self.y_train[ix, 1]])
+    def get_episodes_from_dataset(self, n: int, random: bool):
+        ix = randint(0, self.x_train_norm.shape[0], n) if random else range(0, n)
+
+        position = np.array([*self.x_train_norm[ix, 0]])
+        env_state = np.array([*self.x_train_norm[ix, 1]])
+        action = np.array([*self.x_train_norm[ix, 2]])
         reward = np.array([*self.y_train[ix, 0]]).reshape(-1, 1)
-        done = np.array([*self.y_train[ix, 2]]).reshape(-1, 1)
+        next_position = np.array([*self.y_train[ix, 1]])
+        next_env_state = np.array([*self.y_train[ix, 2]])
+        done = np.array([*self.y_train[ix, 3]]).reshape(-1, 1)
 
-        return env_state, action, reward, next_env_state, done
+        return position, env_state, action, reward, next_position, next_env_state, done
 
     def train(self, epochs: int, batch_size: int, steps_per_epoch: int, train_encoder: bool):
         half_batch = int(batch_size / 2)
@@ -136,14 +144,14 @@ class EPNetworkRL(EPNetwork):
             for j in range(steps_per_epoch):
                 """ Discriminator training """
                 # create training set for the discriminator
-                env_state, action, reward, next_env_state, _ = self.get_random_episodes_from_dataset(n=half_batch)
+                res = self.get_episodes_from_dataset(n=half_batch, random=True)
+                position, env_state, action, reward, next_position, next_env_state, done = res
                 pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict(
-                    [env_state, action]
+                    [position, env_state, action]
                 )
-                real_inputs = [env_state, next_env_state, reward, action]
-                fake_inputs = [env_state, pred_next_env_state, pred_reward, reconstructed_action]
                 real_labels, fake_labels = (np.ones(shape=(half_batch, 1)), np.zeros(shape=(half_batch, 1)))
                 x_discriminator = [
+                    np.array([*position, *position]),
                     np.array([*env_state, *env_state]),
                     np.array([*next_env_state, *pred_next_env_state]),
                     np.array([*reward, *pred_reward]),
@@ -159,18 +167,17 @@ class EPNetworkRL(EPNetwork):
                 # this might result in discriminator outperforming the encoder depending on architecture or vice versa
                 if train_encoder:
                     self.autoencoder.train_on_batch(
-                        [env_state, action], [next_env_state, reward, action, [env_state, action]]
+                        [position, env_state, action], [next_env_state, reward, action, [position, env_state, action]]
                     )
 
                 """ Generator training (discriminator weights deactivated!) """
                 # prepare points in latent space as input for the generator
-                env_state, action, _, _, _ = self.generate_random_episodes(get_obj=False, n=batch_size)
-                action_one_hot = tf.keras.utils.to_categorical(action, num_classes=self.env.action_space.n)
+                position, env_state, action, _, _, _, _ = self.generate_random_episodes(get_obj=False, n=batch_size)
                 # create inverted labels for the fake samples (because generator goal is to trick the discriminator)
                 # so our objective (label) is 1 and if discriminator says 1 we have an error of 0 and vice versa
                 real_labels = np.ones((batch_size, 1))
                 # update the encoder via the discriminator's error
-                g_loss = self.enc_gan.train_on_batch([env_state, action_one_hot], real_labels)
+                g_loss = self.enc_gan.train_on_batch([position, env_state, action], real_labels)
 
                 # summarize loss on this batch
                 print(
@@ -179,11 +186,14 @@ class EPNetworkRL(EPNetwork):
             self.summarize_performance()
 
     def summarize_performance(self, n=100):
-        env_state, action, reward, next_env_state, _ = self.generate_random_episodes(get_obj=False, n=n)
-        action = tf.keras.utils.to_categorical(action, num_classes=self.env.action_space.n)
-        pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict([env_state, action])
-        real_inputs = [env_state, next_env_state, reward, action]
-        fake_inputs = [env_state, pred_next_env_state, pred_reward, reconstructed_action]
+        position, env_state, action, reward, next_position, next_env_state, _ = self.generate_random_episodes(
+            get_obj=False, n=n
+        )
+        pred_next_env_state, pred_reward, reconstructed_action, latent_space = self.encoder.predict(
+            [position, env_state, action]
+        )
+        real_inputs = [position, env_state, next_env_state, reward, action]
+        fake_inputs = [position, env_state, pred_next_env_state, pred_reward, reconstructed_action]
         # evaluate discriminator on real examples
         _, acc_real = self.enc_discriminator.evaluate(real_inputs, np.ones(shape=(n, 1)), verbose=0)
         # evaluate discriminator on fake examples
@@ -218,40 +228,64 @@ class EPNetworkRL(EPNetwork):
         :param get_obj: bool
             Whether to return a copy of the maze object in a specific env state or the env state (without walls) itself.
 
-        :return env_state_obj: Maze
-            Maze object containing the env_state in different formats (binary, values, rgb)
+        :return position:
+            The one-hot encoded position of the agent.
+        :return env_state: Maze
+            Either the current env state or a maze object containing the env_state in different formats (rgb, ...).
         :return action: int
-            Randomly chosen action between 0 and the number of possible actions - 1.
+            Randomly chosen action between 0 and the number of possible actions - 1 (one-hot encoded).
         :return reward: int
             Received reward from the environment for taking 'action' in 'env_state'.
         :next_env_state: [bool]
-            Maze object containing the next env_state in different formats (binary, values, rgb).
-            The next_env_state is the state received by the environment after taking 'action' in 'env_state'
+            Either the current env state or a maze object containing the next env_state in different formats (rgb, ...).
+            The next_env_state is the state received by the environment after taking 'action' in 'env_state'.
         :done: bool
             Information whether the goal was reached by taking 'action' in 'env_state' or not.
         """
         action = np.random.randint(0, self.env.action_space.n)
         self.env.reset(randomize_start=True)
+        position = [obj for obj in self.env.maze.objects if obj.name == "agent"][0].positions[0]
         env_state = deepcopy(self.env.maze) if get_obj else self.env.maze.to_valid_obs()
         next_env_state, reward, done, _ = self.env.step(action)
         next_env_state = deepcopy(self.env.maze) if get_obj else self.env.maze.to_valid_obs()
-        return env_state, action, reward, next_env_state, done
+        next_position = [obj for obj in self.env.maze.objects if obj.name == "agent"][0].positions[0]
+
+        # Convert position, next_position and action to one hot
+        action_one_hot = tf.keras.utils.to_categorical(action, num_classes=self.env.action_space.n)
+        position_1_one_hot = tf.keras.utils.to_categorical(position[0], num_classes=self.env.maze.size[0])
+        position_2_one_hot = tf.keras.utils.to_categorical(position[1], num_classes=self.env.maze.size[1])
+        position_one_hot = np.concatenate((position_1_one_hot, position_2_one_hot))
+        next_position_1_one_hot = tf.keras.utils.to_categorical(next_position[0], num_classes=self.env.maze.size[0])
+        next_position_2_one_hot = tf.keras.utils.to_categorical(next_position[1], num_classes=self.env.maze.size[1])
+        next_position_one_hot = np.concatenate((next_position_1_one_hot, next_position_2_one_hot))
+
+        return position_one_hot, env_state, action_one_hot, reward, next_position_one_hot, next_env_state, done
 
     def generate_random_episodes(self, get_obj, n):
         if get_obj:
             env_state = np.empty((n, 1), dtype=type(self.env))
             next_env_state = np.empty((n, 1), dtype=type(self.env))
         else:
-            env_state = np.empty((n, self.nr_valid_tiles), dtype=int)
-            next_env_state = np.empty((n, self.nr_valid_tiles), dtype=int)
+            env_state = np.zeros((n, self.nr_valid_tiles), dtype=int)
+            next_env_state = np.zeros((n, self.nr_valid_tiles), dtype=int)
 
-        action = np.empty((n, 1), dtype=int)
+        action = np.empty((n, self.env.action_space.n), dtype=int)
         reward = np.empty((n, 1), dtype=float)
         done = np.empty((n, 1), dtype=bool)
+        position = np.empty((n, self.env.maze.size[0] + self.env.maze.size[1]), dtype=int)
+        next_position = np.empty((n, self.env.maze.size[0] + self.env.maze.size[1]), dtype=int)
 
         for i in range(n):
-            env_state[i], action[i], reward[i], next_env_state[i], done[i] = self._generate_random_episode(get_obj)
-        return env_state, action, reward, next_env_state, done
+            (
+                position[i],
+                env_state[i],
+                action[i],
+                reward[i],
+                next_position[i],
+                next_env_state[i],
+                done[i],
+            ) = self._generate_random_episode(get_obj)
+        return position, env_state, action, reward, next_position, next_env_state, done
 
     def predict_next_env_state_and_latent_space(self, env_state, action):
         """Given an env_state, the generator predicts the resulting env_state + latent space"""
@@ -268,20 +302,20 @@ class EPNetworkRL(EPNetwork):
         height = 5
         plt.figure(figsize=(width, height))
         for idx in range(n_samples):
-            env_state_obj, action, _, _, _ = self._generate_random_episode(get_obj=True)
+            position, env_state_obj, action, _, _, _, _ = self._generate_random_episode(get_obj=True)
             env_state = env_state_obj.to_valid_obs().reshape(1, -1)
-            action_one_hot = tf.keras.utils.to_categorical(action, num_classes=self.env.action_space.n).reshape(1, -1)
-
+            position = position.reshape(1, -1)
+            action = action.reshape(1, -1)
             [
                 pred_next_env_state,
                 pred_reward,
                 reconstructed_action,
-                (dec_reconstructed_state, dec_reconstructed_action),
-            ] = self.autoencoder.predict([env_state, action_one_hot])
+                (dec_reconstructed_position, dec_reconstructed_state, dec_reconstructed_action),
+            ] = self.autoencoder.predict([position, env_state, action])
 
             # Sampled maze state + action
             add_subplot(image=env_state_obj.to_rgb(), n_cols=height, n_rows=width, index=1 + idx)
-            plt.annotate(self.env.motions._fields[action], xy=(0.25, -0.5), fontsize="medium")
+            plt.annotate(self.env.motions._fields[np.argmax(action[0])], xy=(0.25, -0.5), fontsize="medium")
 
             # Sampled maze state + action with next state prediction values
             add_subplot(image=env_state_obj.to_rgb(), n_cols=height, n_rows=width, index=1 + idx + n_samples)
