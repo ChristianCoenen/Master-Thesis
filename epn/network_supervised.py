@@ -1,10 +1,10 @@
 from typing import List, Tuple, Optional
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.layers import Input, Dense, LeakyReLU, concatenate
+from tensorflow.keras.layers import Input, Dense, LeakyReLU
 from tensorflow.keras.models import Model
 from tensorflow.keras.utils import to_categorical
 from numpy.random import randint
-from numpy import concatenate, zeros, ones
+from numpy import zeros, ones
 from epn.helper import add_subplot, save_plot_as_image
 from epn.network import EPNetwork
 import tensorflow as tf

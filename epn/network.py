@@ -112,7 +112,7 @@ class EPNetwork:
 
         # Output layers
         # TODO: this part is not optimal and is a bit messy / hard to understand, but I don't see another solution.
-        # What's happening here is that decoder outputs are basically the same as incoder inputs, so we iterate through
+        # What's happening here is that decoder outputs are basically the same as encoder inputs, so we iterate through
         # the encoder inputs and create decoder layers. Because encoder inputs are concatenated and there is no direct
         # split in tensorflow, the weights are sliced to ensure that weight sharing is still working
         outputs = []
@@ -203,6 +203,8 @@ class EPNetwork:
             Takes a list of valid keras layers and attaches them as output layers to the discriminator.
         :param model_name
             The name of the model (useful for plots)
+        :param use_dropout_layers
+            Whether dropout layers are added after each layer in the discriminator.
 
         :return: A model object.
         """
