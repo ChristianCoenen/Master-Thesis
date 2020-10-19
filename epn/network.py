@@ -27,7 +27,7 @@ class EPNetwork:
         self.encoder_dims = encoder_dims
         self.discriminator_dims = discriminator_dims
 
-    def _build_encoder(
+    def build_encoder(
         self,
         input_tensors: List[Tensor],
         output_layers: List[Layer],
@@ -67,7 +67,7 @@ class EPNetwork:
 
         return Model(input_tensors, outputs=built_output_layers, name=model_name)
 
-    def _build_decoder(
+    def build_decoder(
         self,
         encoder: Model,
         model_name: Optional[str] = "decoder",
@@ -162,12 +162,12 @@ class EPNetwork:
 
         """
         # Build autoencoder
-        encoder = self._build_encoder(encoder_input_tensors, encoder_output_layers)
+        encoder = self.build_encoder(encoder_input_tensors, encoder_output_layers)
         autoencoder_inputs = [
             Input(shape=tensor.shape[1:], name=tensor.name.split(":")[0]) for tensor in encoder.inputs
         ]
         encoded = encoder(autoencoder_inputs)
-        decoder = self._build_decoder(encoder)
+        decoder = self.build_decoder(encoder)
         decoded = decoder(encoded)
         # Ensure that encoded is a list (if encoder has only 1 output, encoded is a Tensor instead of a List of Tensors)
         encoded = [encoded] if type(encoded) is not list else encoded
