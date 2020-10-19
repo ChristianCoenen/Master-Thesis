@@ -31,7 +31,7 @@ class EPNetwork:
         self,
         input_tensors: List[Tensor],
         output_layers: List[Layer],
-        model_name: Optional[str] = "encoder",
+        model_name: str = "encoder",
     ) -> Model:
         """
         This class creates an encoder model with x encoder layers and y output layers.
@@ -70,7 +70,7 @@ class EPNetwork:
     def build_decoder(
         self,
         encoder: Model,
-        model_name: Optional[str] = "decoder",
+        model_name: str = "decoder",
     ) -> Model:
         """This class creates an decoder model that clones the encoder architecture.
 
@@ -143,7 +143,7 @@ class EPNetwork:
         encoder_input_tensors: List[Tensor],
         encoder_output_layers: List[Layer],
         ae_ignored_output_layer_names: Optional[List[str]] = None,
-        model_name: Optional[str] = "autoencoder",
+        model_name: str = "autoencoder",
     ) -> Tuple[Model, Model, Model]:
         """
         Creates an autoencoder by calling the build_encoder & build_decoder method and concatenating the returned models
@@ -184,8 +184,8 @@ class EPNetwork:
         self,
         input_tensors: List[Tensor],
         output_layers: List[Layer],
-        model_name: Optional[str] = "discriminator",
-        use_dropout_layers: Optional[bool] = True,
+        model_name: str = "discriminator",
+        use_dropout_layers: bool = True,
     ):
         """
         Creates a discriminator model.
@@ -235,7 +235,7 @@ class EPNetwork:
         generator: Model,
         discriminator: Model,
         ignored_layer_names: Optional[List[str]] = None,
-        model_name: Optional[str] = "gan",
+        model_name: str = "gan",
     ) -> Model:
         """
         Defines a GAN consisting of a generator and a discriminator model. The GAN is used to train the generator.
