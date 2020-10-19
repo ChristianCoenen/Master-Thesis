@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.layers import Layer
-from typing import List, Optional
+from typing import List, Optional, Union
 
 
 # Custom layer to tie the weights of the encoder and decoder
@@ -9,7 +9,7 @@ class DenseTranspose(Layer):
     def __init__(
         self,
         dense_layers: List[Layer],
-        activation: Optional[str] = None,
+        activation: Union[str, Layer, None] = None,
         custom_weights: Optional[tf.Variable] = None,
         **kwargs,
     ):
