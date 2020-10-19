@@ -1,11 +1,18 @@
 import tensorflow as tf
 from tensorflow import keras
+from tensorflow.keras.layers import Layer
 from typing import List, Optional
 
 
 # Custom layer to tie the weights of the encoder and decoder
-class DenseTranspose(keras.layers.Layer):
-    def __init__(self, dense_layers: List, activation=None, custom_weights: Optional[tf.Variable] = None, **kwargs):
+class DenseTranspose(Layer):
+    def __init__(
+        self,
+        dense_layers: List[Layer],
+        activation: Optional[str] = None,
+        custom_weights: Optional[tf.Variable] = None,
+        **kwargs,
+    ):
         self.dense_layers = dense_layers
         self.custom_weights = custom_weights
         self.activation = keras.activations.get(activation)
@@ -22,7 +29,7 @@ class DenseTranspose(keras.layers.Layer):
 
         super().build(batch_input_shape)
 
-    def call(self, inputs):
+    def call(self, inputs, **kwargs):
         if self.custom_weights is None:
             weights = tf.concat([layer.weights[0] for layer in self.dense_layers], axis=1)
         else:
