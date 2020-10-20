@@ -344,7 +344,7 @@ class EPNetworkRL(EPNetwork):
         inputs = np.concatenate((env_state, action_one_hot), axis=1)
         return inputs
 
-    def visualize_autoencoder_predictions_to_file(self, state, n_samples=10, path="images/epn_rl/plots"):
+    def visualize_outputs_to_file(self, state, n_samples=9, path="images/epn_rl/plots"):
         width = n_samples
         height = 5
         plt.figure(figsize=(width, height))
