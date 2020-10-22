@@ -273,17 +273,19 @@ class EPNetwork:
         """ When using a epn architecture, a train function has to be provided """
         pass
 
-    def save_model_architecture_images(self, models: List[Model], path: str):
+    def save_model_architecture_images(self, models: List[Model], path: str, fmt: str = "png"):
         """
         Saves all passed models as PNGs into a defined subfolder. A common use case for this method is to call it
         in the respective subclasses with the defined models.
 
-
         :param models:
+            A list of models whose architecture should be visualized and saved.
         :param path: str
-            Relative path from the execution directory
+            Relative path from the execution directory.
+        :param fmt: str
+            Format of the resulting file. Valid options are "png" and "svg".
         :return:
             None
         """
         Path(path).mkdir(parents=True, exist_ok=True)
-        [plot_model(m, f"{path}/{m.name}_architecture.png", show_shapes=True, expand_nested=True) for m in models]
+        [plot_model(m, f"{path}/{m.name}_architecture.{fmt}", show_shapes=True, expand_nested=True) for m in models]
