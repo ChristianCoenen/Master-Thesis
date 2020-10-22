@@ -166,7 +166,7 @@ class EPNetworkSupervised(EPNetwork):
 
             # evaluate the model performance each epoch
             self.summarize_performance(i)
-        self.save_reconstruction_plot_images(self.x_train_norm[10:20], state="post_gan_training")
+        self.save_reconstruction_plot_images(self.x_test_norm[10:20], state="post_gan_training")
 
     def summarize_performance(self, epoch, n_samples=100):
         """Evaluate the discriminator, plot generated images, save generator model
@@ -211,7 +211,7 @@ class EPNetworkSupervised(EPNetwork):
         super().save_model_architecture_images(models, path)
 
     def visualize_autoencoder_predictions_to_file(self, state):
-        self.save_reconstruction_plot_images(self.x_train_norm[10:20], state)
+        self.save_reconstruction_plot_images(self.x_test_norm[10:20], state)
         self.save_fake_sample_plot_images()
 
     def save_reconstruction_plot_images(self, samples, state, path="images/epn_supervised/plots"):
