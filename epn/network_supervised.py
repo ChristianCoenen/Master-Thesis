@@ -192,8 +192,10 @@ class EPNetworkSupervised(EPNetwork):
         self.save_fake_sample_plot_images(x_fake=x_fake, labels=labels, epoch=epoch)
 
     def evaluate(self):
-        # Evaluates the autoencoder based on the test data
-        return self.autoencoder.evaluate(self.x_test_norm, [self.y_test, self.x_test_norm], verbose=0)
+        # Evaluates the autoencoder based on the test data (only returns classification accuracy, cause decoder accuracy
+        # is not valuable (interpreting result as visualized image is better)
+        acc = self.autoencoder.evaluate(self.x_test_norm, [self.y_test, self.x_test_norm], verbose=0)[3]
+        return acc * 100
 
     def save_model_architecture_images(
         self, models: Optional[List[Model]] = None, path: str = "images/epn_supervised/architecture", fmt: str = "png"
@@ -210,35 +212,46 @@ class EPNetworkSupervised(EPNetwork):
         )
         super().save_model_architecture_images(models, path)
 
-    def visualize_autoencoder_predictions_to_file(self, state):
-        self.save_reconstruction_plot_images(self.x_test_norm[10:20], state)
+    def visualize_autoencoder_predictions_to_file(self, state, acc=None):
+        self.save_reconstruction_plot_images(self.x_test_norm[10:20], state, acc=acc)
         self.save_fake_sample_plot_images()
 
-    def save_reconstruction_plot_images(self, samples, state, path="images/epn_supervised/plots"):
+    def save_reconstruction_plot_images(self, samples, state, path="images/epn_supervised/plots", acc=None):
         """Pushes x samples through the autoencoder to generate & visualize reconstructions
 
         :param samples:
             Samples that matches the following shape [n_samples, autoencoder input shape]
+        :param state: str
+            State of the training
         :param path: str
             Path to the directory where the plots are getting stored.
+        :param acc: float
+            Test accuracy of the classifier in the autoencoder
         :return:
             None
         """
-        n_samples = samples.shape[0]
+        n_rows = samples.shape[0]
+        n_cols = 3 if acc else 2
         reconstructions = self.autoencoder.predict(samples)
-        plt.figure(figsize=(n_samples * 1.5, 3))
-        for image_index in range(n_samples):
+        plt.figure(figsize=(n_rows * 1.5, n_cols))
+        for image_index in range(n_rows):
             # orig image
-            _ = add_subplot(image=samples[image_index, :, :, 0], n_cols=3, n_rows=n_samples, index=1 + image_index)
+            _ = add_subplot(image=samples[image_index, :, :, 0], n_cols=n_cols, n_rows=n_rows, index=1 + image_index)
             # reconstruction
             plot_obj = add_subplot(
                 image=reconstructions[1][image_index, :, :, 0],
-                n_cols=3,
-                n_rows=n_samples,
-                index=1 + n_samples + image_index,
+                n_cols=n_cols,
+                n_rows=n_rows,
+                index=1 + n_rows + image_index,
             )
             # label
             plot_obj.annotate(str(np.argmax(reconstructions[0][image_index])), xy=(0, 0))
+            # test accuracy
+
+        if acc:
+            subplot = plt.subplot(n_cols, n_rows, 1 + 2 * n_rows)
+            subplot.axis("off")
+            subplot.text(0.2, 0.5, f"Test accuracy: {round(acc, 2)}%")
 
         save_plot_as_image(path=path, filename=state)
 
