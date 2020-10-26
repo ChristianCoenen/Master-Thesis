@@ -196,7 +196,7 @@ class EPNetworkSupervised(EPNetwork):
         return self.autoencoder.evaluate(self.x_test_norm, [self.y_test, self.x_test_norm], verbose=0)
 
     def save_model_architecture_images(
-        self, models: Optional[List[Model]] = None, path: str = "images/epn_supervised/architecture"
+        self, models: Optional[List[Model]] = None, path: str = "images/epn_supervised/architecture", fmt: str = "png"
     ):
         models = models if models is not None else []
         models.extend(

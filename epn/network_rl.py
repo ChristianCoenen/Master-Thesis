@@ -253,7 +253,7 @@ class EPNetworkRL(EPNetwork):
     ####################################################################################################################
 
     def save_model_architecture_images(
-        self, models: Optional[List[Model]] = None, path: str = "images/epn_rl/architecture"
+        self, models: Optional[List[Model]] = None, path: str = "images/epn_rl/architecture", fmt: str = "png"
     ):
         models = models if models is not None else []
         models.extend(
