@@ -7,7 +7,7 @@ data = datasets.get_mnist(fashion=False)
 epn = EPNetworkSupervised(
     data=data,
     latent_dim=50,
-    autoencoder_loss=["mean_squared_error", "binary_crossentropy"],
+    autoencoder_loss=["categorical_crossentropy", "binary_crossentropy"],
     weight_sharing=True,
     encoder_dims=[1024, 512, 256],
     discriminator_dims=[1024, 512, 256],

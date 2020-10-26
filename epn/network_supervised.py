@@ -72,13 +72,17 @@ class EPNetworkSupervised(EPNetwork):
             ],
         )
         self.discriminator.compile(
-            loss=["binary_crossentropy", "mean_squared_error"], optimizer=Adam(0.0002, 0.5), metrics=["accuracy"]
+            loss=["binary_crossentropy", "categorical_crossentropy"],
+            optimizer=Adam(lr=0.0002, beta_1=0.5),
+            metrics=["accuracy"],
         )
 
         # Build GAN model (decoder & discriminator) - For the GAN model we will only train the generator
         self.discriminator.trainable = False
         self.gan = self.build_gan(self.decoder, self.discriminator)
-        self.gan.compile(loss="binary_crossentropy", optimizer=Adam(lr=0.0002, beta_1=0.5))
+        self.gan.compile(
+            loss=["binary_crossentropy", "categorical_crossentropy"], optimizer=Adam(lr=0.0002, beta_1=0.5)
+        )
 
     def generate_latent_and_classification_points(self, n_samples):
         # generate random points in the latent space
