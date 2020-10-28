@@ -1,6 +1,8 @@
 from epn import datasets
 from epn.network_supervised import EPNetworkSupervised
+import tensorflow as tf
 
+tf.random.set_seed(30)
 data = datasets.get_mnist(fashion=False)
 # Configure and train the Entropy Propagation Network
 epn = EPNetworkSupervised(
