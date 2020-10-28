@@ -15,7 +15,7 @@ epn = EPNetworkSupervised(
 epn.save_model_architecture_images()
 
 epn.visualize_autoencoder_predictions_to_file(state="pre_autoencoder_training")
-epn.train_autoencoder(epochs=1, batch_size=32, validation_split=0.1)
+epn.train_autoencoder(epochs=10, batch_size=32, validation_split=0.1)
 acc = epn.evaluate()
 epn.visualize_autoencoder_predictions_to_file(state="post_autoencoder_training", acc=acc)
 
