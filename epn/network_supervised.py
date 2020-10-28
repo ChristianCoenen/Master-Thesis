@@ -217,7 +217,7 @@ class EPNetworkSupervised(EPNetwork):
         super().save_model_architecture_images(models, path)
 
     def visualize_autoencoder_predictions_to_file(self, state, acc=None):
-        self.save_reconstruction_plot_images(self.x_test_norm[0:10], state, acc=acc)
+        self.save_reconstruction_plot_images(self.x_test_norm[20:30], state, acc=acc)
         self.save_fake_sample_plot_images()
 
     def save_reconstruction_plot_images(self, samples, state, path="images/epn_supervised/plots", acc=None):
