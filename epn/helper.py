@@ -12,5 +12,5 @@ def add_subplot(image, n_cols, n_rows, index):
 def save_plot_as_image(path, filename, dpi=300):
     Path(path).mkdir(parents=True, exist_ok=True)
     full_path = f"{path}/{filename}"
-    plt.savefig(full_path, dpi=dpi)
+    plt.savefig(full_path, dpi=dpi, bbox_inches="tight", pad_inches=0)
     plt.close()
