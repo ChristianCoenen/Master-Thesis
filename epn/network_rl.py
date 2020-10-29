@@ -267,7 +267,7 @@ class EPNetworkRL(EPNetwork):
                 self.enc_gan,
             ]
         )
-        super().save_model_architecture_images(models, path)
+        super().save_model_architecture_images(models, path, fmt)
 
     def _generate_random_episode(self, get_obj):
         """Generates a random episode consisting of (env_state, action, reward, next_env_state, done).
