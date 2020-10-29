@@ -255,7 +255,7 @@ class EPNetworkSupervised(EPNetwork):
         if acc:
             subplot = plt.subplot(n_cols, n_rows, 1 + 2 * n_rows)
             subplot.axis("off")
-            subplot.text(0.2, 0.5, f"Test accuracy: {round(acc, 2)}%", fontsize=22)
+            subplot.text(0.2, 0.5, f"Test accuracy: {round(acc, 2)}%", fontsize=18)
 
         save_plot_as_image(path=path, filename=state)
 
