@@ -220,7 +220,7 @@ class EPNetworkSupervised(EPNetwork):
         self.save_reconstruction_plot_images(self.x_test_norm[20:30], state, acc=acc)
         self.save_fake_sample_plot_images()
 
-    def create_modified_classification_plot(self, sample_idx, path="images/epn_supervised/plots"):
+    def create_modified_classification_plot(self, sample_idx=None, path="images/epn_supervised/plots", random=False):
         """Creates reconstructions for one sample with all possible labels
 
         :param sample_idx:
@@ -232,7 +232,13 @@ class EPNetworkSupervised(EPNetwork):
         """
         n_rows = self.classification_dim
         n_cols = 2
-        sample = self.x_test_norm[sample_idx]
+        if sample_idx:
+            sample = self.x_test_norm[sample_idx]
+        elif random:
+            sample = np.random.rand(*self.x_test_norm[0].shape)
+        else:
+            raise ValueError("Either provide a sample index or set random to true!")
+
         sample = sample[np.newaxis, ...]
 
         sample_latent_space = self.encoder.predict(sample)[0]
@@ -254,7 +260,7 @@ class EPNetworkSupervised(EPNetwork):
             plot_obj.annotate(str(image_index), xy=(0, 0))
             # test accuracy
 
-        save_plot_as_image(path=path, filename="modified_classifications")
+        save_plot_as_image(path=path, filename=f"modified_classifications_{'random' if random else 'real'}")
 
     def save_reconstruction_plot_images(self, samples, state, path="images/epn_supervised/plots", acc=None):
         """Pushes x samples through the autoencoder to generate & visualize reconstructions
