@@ -7,7 +7,7 @@ data = datasets.get_mnist(fashion=False)
 # Configure and train the Entropy Propagation Network
 epn = EPNetworkSupervised(
     data=data,
-    latent_dim=50,
+    latent_dim=20,
     autoencoder_loss=["categorical_crossentropy", "binary_crossentropy"],
     weight_sharing=True,
     encoder_dims=[500, 500],
