@@ -220,6 +220,42 @@ class EPNetworkSupervised(EPNetwork):
         self.save_reconstruction_plot_images(self.x_test_norm[20:30], state, acc=acc)
         self.save_fake_sample_plot_images()
 
+    def create_modified_classification_plot(self, sample_idx, path="images/epn_supervised/plots"):
+        """Creates reconstructions for one sample with all possible labels
+
+        :param sample_idx:
+            Index that is used to extract a sample from the test data
+        :param path: str
+            Path to the directory where the plots are getting stored.
+        :return:
+            None
+        """
+        n_rows = self.classification_dim
+        n_cols = 2
+        sample = self.x_test_norm[sample_idx]
+        sample = sample[np.newaxis, ...]
+
+        sample_latent_space = self.encoder.predict(sample)[0]
+
+        decoder_input = [np.array([sample_latent_space.flatten()] * n_rows), np.eye(n_rows)]
+        reconstructions = self.decoder.predict(decoder_input)
+        plt.figure(figsize=(n_rows * 1.5, n_cols))
+        for image_index in range(n_rows):
+            # orig image
+            _ = add_subplot(sample[0, :, :, 0], n_cols=n_cols, n_rows=n_rows, index=1 + image_index)
+            # reconstruction
+            plot_obj = add_subplot(
+                image=reconstructions[image_index, :, :, 0],
+                n_cols=n_cols,
+                n_rows=n_rows,
+                index=1 + n_rows + image_index,
+            )
+            # label
+            plot_obj.annotate(str(image_index), xy=(0, 0))
+            # test accuracy
+
+        save_plot_as_image(path=path, filename="modified_classifications")
+
     def save_reconstruction_plot_images(self, samples, state, path="images/epn_supervised/plots", acc=None):
         """Pushes x samples through the autoencoder to generate & visualize reconstructions
 

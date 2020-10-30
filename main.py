@@ -20,5 +20,6 @@ epn.visualize_autoencoder_predictions_to_file(state="pre_autoencoder_training")
 epn.train_autoencoder(epochs=10, batch_size=32, validation_split=0.1)
 acc = epn.evaluate()
 epn.visualize_autoencoder_predictions_to_file(state="post_autoencoder_training", acc=acc)
+epn.create_modified_classification_plot(sample_idx=4)
 
 epn.train(epochs=40, batch_size=128, steps_per_epoch=500, train_encoder=True)
