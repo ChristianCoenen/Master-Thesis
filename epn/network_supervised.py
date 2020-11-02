@@ -87,6 +87,8 @@ class EPNetworkSupervised(EPNetwork):
     def generate_latent_and_classification_points(self, n_samples):
         # generate random points in the latent space
         x_latent = np.random.normal(0, 1, size=(n_samples, self.latent_dim))
+        random_samples = np.random.rand(n_samples, *self.encoder.input_shape[1:])
+        x_latent = self.encoder.predict(random_samples)[0]
         x_classification = randint(self.classification_dim, size=n_samples)
         x_classification = to_categorical(x_classification, num_classes=self.classification_dim)
         return x_latent, x_classification
