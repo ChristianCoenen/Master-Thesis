@@ -12,7 +12,7 @@ from epn.custom_layers import DenseTranspose
 class EPNetwork:
     """ The entropy propagation base class. It defines the base architecture and is highly customizable. """
 
-    def __init__(self, weight_sharing: bool, encoder_dims: List[int], discriminator_dims: List[int]):
+    def __init__(self, weight_sharing: bool, encoder_dims: List[int], discriminator_dims: List[int], seed: int):
         """
         :param weight_sharing:
             If set to true, the decoder will used the weights created on the encoder side using DenseTranspose layers
@@ -22,10 +22,13 @@ class EPNetwork:
             Each value (x) represents one hidden layer with x neurons. By default, the discriminator network will
             mimic the structure of the hidden encoder layers (since the generator has the same structure as the encoder,
             the discriminator will and decoder are of the same size which is mostly good in an adversarial setting).
+        :param seed:
+            Seed to have controlled randomness. This ensures reproducibility of the experiments.
         """
         self.weight_sharing = weight_sharing
         self.encoder_dims = encoder_dims
         self.discriminator_dims = discriminator_dims
+        self.seed = seed
 
     def build_encoder(
         self,
@@ -223,7 +226,7 @@ class EPNetwork:
         for layer_dim in self.discriminator_dims:
             x = Dense(layer_dim, activation=LeakyReLU(alpha=0.2))(x)
             if use_dropout_layers:
-                x = Dropout(0.3)(x)
+                x = Dropout(0.3, seed=self.seed)(x)
 
         # Create an output layer based on the last encoder layer for each passed layer
         built_output_layers = [output_layer(x) for output_layer in output_layers]

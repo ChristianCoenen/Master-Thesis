@@ -1,8 +1,21 @@
 from epn import datasets
 from epn.network_supervised import EPNetworkSupervised
 import tensorflow as tf
+import os
+import random
+import numpy as np
 
-tf.random.set_seed(30)
+# Set a seed value
+seed_value = 30
+# 1. Set `PYTHONHASHSEED` environment variable at a fixed value
+os.environ['PYTHONHASHSEED'] = str(seed_value)
+# 2. Set `python` built-in pseudo-random generator at a fixed value
+random.seed(seed_value)
+# 3. Set `numpy` pseudo-random generator at a fixed value
+np.random.seed(seed_value)
+# 4. Set `tensorflow` pseudo-random generator at a fixed value
+tf.random.set_seed(seed_value)
+
 data = datasets.get_mnist(fashion=False)
 # Configure and train the Entropy Propagation Network
 epn = EPNetworkSupervised(
@@ -12,6 +25,7 @@ epn = EPNetworkSupervised(
     weight_sharing=True,
     encoder_dims=[500, 500],
     discriminator_dims=[500, 500],
+    seed=seed_value
 )
 # Only run the following line if you have graphviz installed, otherwise make sure to remove it or comment it out
 epn.save_model_architecture_images()
