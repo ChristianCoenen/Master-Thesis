@@ -6,7 +6,7 @@ import random
 import numpy as np
 
 # Set a seed value
-seed_value = 30
+seed_value = 42
 # 1. Set `PYTHONHASHSEED` environment variable at a fixed value
 os.environ["PYTHONHASHSEED"] = str(seed_value)
 # 2. Set `python` built-in pseudo-random generator at a fixed value
