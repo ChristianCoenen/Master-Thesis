@@ -69,11 +69,10 @@ class EPNetworkSupervised(EPNetwork):
             ],
             output_layers=[
                 Dense(1, activation="sigmoid", name="real_or_fake"),
-                Dense(self.classification_dim, activation="softmax", name="classifier"),
             ],
         )
         self.discriminator.compile(
-            loss=["binary_crossentropy", "categorical_crossentropy"],
+            loss=["binary_crossentropy"],
             optimizer=Adam(lr=0.0002, beta_1=0.5),
             metrics=["accuracy"],
         )
@@ -81,9 +80,7 @@ class EPNetworkSupervised(EPNetwork):
         # Build GAN model (decoder & discriminator) - For the GAN model we will only train the generator
         self.discriminator.trainable = False
         self.gan = self.build_gan(self.decoder, self.discriminator)
-        self.gan.compile(
-            loss=["binary_crossentropy", "categorical_crossentropy"], optimizer=Adam(lr=0.0002, beta_1=0.5)
-        )
+        self.gan.compile(loss=["binary_crossentropy"], optimizer=Adam(lr=0.0002, beta_1=0.5))
 
     def generate_latent_and_classification_points(self, n_samples):
         # generate random points in the latent space
@@ -151,7 +148,7 @@ class EPNetworkSupervised(EPNetwork):
                 # One-sided label smoothing
                 y_discriminator[:half_batch] = 0.9
                 # update discriminator model weights
-                d_loss, _, _, _, _ = self.discriminator.train_on_batch(x_discriminator, [y_discriminator, labels])
+                d_loss, _ = self.discriminator.train_on_batch(x_discriminator, y_discriminator)
 
                 """ Generator training (discriminator weights deactivated!) """
                 # prepare points in latent space as input for the generator
@@ -160,7 +157,7 @@ class EPNetworkSupervised(EPNetwork):
                 # so our objective (label) is 1 and if discriminator says 1, we have an error of 0 and vice versa
                 y_gan = ones((batch_size, 1))
                 # update the generator via the discriminator's error
-                g_loss, _, _ = self.gan.train_on_batch([x_latent, x_classification], [y_gan, x_classification])
+                g_loss = self.gan.train_on_batch([x_latent, x_classification], y_gan)
 
                 """ Autoencoder training """
                 # this might result in the discriminator outperforming the generator depending on architecture
@@ -188,11 +185,11 @@ class EPNetworkSupervised(EPNetwork):
         # prepare real samples
         x_real, y_real, labels = self.generate_real_samples(n_samples)
         # evaluate discriminator on real examples
-        _, _, _, acc_real, _ = self.discriminator.evaluate(x_real, [y_real, labels], verbose=0)
+        _, acc_real = self.discriminator.evaluate(x_real, y_real, verbose=0)
         # prepare fake examples
         x_fake, y_fake, labels = self.generate_fake_samples(n_samples)
         # evaluate discriminator on fake examples
-        _, _, _, acc_fake, _ = self.discriminator.evaluate(x_fake, [y_fake, labels], verbose=0)
+        _, acc_fake = self.discriminator.evaluate(x_fake, y_fake, verbose=0)
         # summarize discriminator performance
         print(f">Accuracy real: {acc_real * 100:.0f}%%, fake: {acc_fake * 100:.0f}%%")
         # save plot
