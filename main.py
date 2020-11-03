@@ -25,6 +25,7 @@ epn = EPNetworkSupervised(
     weight_sharing=True,
     encoder_dims=[1024, 512, 256],
     discriminator_dims=[1024, 512, 256],
+    seed=seed_value,
 )
 # Only run the following line if you have graphviz installed, otherwise make sure to remove it or comment it out
 # epn.save_model_architecture_images()
