@@ -33,6 +33,7 @@ class EPNetworkSupervised(EPNetwork):
         weight_sharing: bool,
         encoder_dims: List[int],
         discriminator_dims: List[int],
+        seed: int,
     ):
         """
         :param data:
@@ -42,7 +43,7 @@ class EPNetworkSupervised(EPNetwork):
         :param autoencoder_loss:
             This parameter allows to define the classification and reconstruction loss functions for the autoencoder.
         """
-        super().__init__(weight_sharing, encoder_dims, discriminator_dims)
+        super().__init__(weight_sharing, encoder_dims, discriminator_dims, seed)
         (self.x_train_norm, self.y_train), (self.x_test_norm, self.y_test) = data
         self.latent_dim = latent_dim
         self.autoencoder_loss = autoencoder_loss

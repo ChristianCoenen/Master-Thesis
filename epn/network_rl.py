@@ -26,12 +26,22 @@ class EPNetworkRL(EPNetwork):
     1. Additional GAN Network (working with the encoder instead of the decoder)
     """
 
-    def __init__(self, env, data, latent_dim, autoencoder_loss, **kwargs):
+    def __init__(
+        self,
+        env,
+        data,
+        latent_dim,
+        autoencoder_loss,
+        weight_sharing: bool,
+        encoder_dims: List[int],
+        discriminator_dims: List[int],
+        seed: int,
+    ):
         """
         :param env: MazeEnv
             MazeEnv object initialized with the same maze & config that was used to generate the dataset.
         """
-        super().__init__(**kwargs)
+        super().__init__(weight_sharing, encoder_dims, discriminator_dims, seed)
         self.nr_valid_tiles = np.count_nonzero(env.maze.to_impassable() == 0)
         self.nr_tiles = env.maze.size[0] * env.maze.size[1]
         self.env = env
