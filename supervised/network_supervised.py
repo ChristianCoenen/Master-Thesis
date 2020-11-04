@@ -33,7 +33,7 @@ class EPNetworkSupervised(EPNetwork):
         weight_sharing: bool,
         encoder_dims: List[int],
         discriminator_dims: List[int],
-        seed: int
+        seed: int,
     ):
         """
         :param data:
@@ -87,7 +87,7 @@ class EPNetworkSupervised(EPNetwork):
 
     def generate_latent_and_classification_points(self, n_samples):
         # generate random points in the latent space
-        x_latent = np.random.normal(0, 1, size=(n_samples, self.latent_dim))
+        x_latent = np.random.rand(n_samples, self.latent_dim)
         x_classification = randint(self.classification_dim, size=n_samples)
         x_classification = to_categorical(x_classification, num_classes=self.classification_dim)
         return x_latent, x_classification
