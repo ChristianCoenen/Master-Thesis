@@ -1,5 +1,5 @@
 from epn import datasets
-from epn.network_supervised import EPNetworkSupervised
+from supervised.network_supervised import EPNetworkSupervised
 import tensorflow as tf
 import os
 import random
