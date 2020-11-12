@@ -5,7 +5,7 @@ from epn.helper import add_subplot, save_plot_as_image
 from copy import deepcopy
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.layers import Input, Dense, LeakyReLU, concatenate
+from tensorflow.keras.layers import Input, Dense, LeakyReLU
 from tensorflow.keras.models import Model
 import matplotlib.pyplot as plt
 import numpy as np
