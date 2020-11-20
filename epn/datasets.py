@@ -37,5 +37,22 @@ def get_cifar():
 def get_maze_memories(path, test_size=0.2, shuffle=False):
     data = np.load(path, allow_pickle=True)
     np.random.shuffle(data) if shuffle else None
-    x_train, x_test, y_train, y_test = train_test_split(data[:, :3], data[:, 3:], test_size=test_size, shuffle=shuffle)
-    return (x_train, y_train), (x_test, y_test)
+    x_train, x_test, y_train, y_test = train_test_split(data[:, :2], data[:, 2:4], test_size=test_size, shuffle=shuffle)
+
+    # Reshape data so that it can be used with Keras
+    ix_train = range(0, x_train.shape[0])
+    train = {
+        "state": np.array([*x_train[ix_train, 0]]),
+        "action": np.array([*x_train[ix_train, 1]]),
+        "next_state": np.array([*y_train[ix_train, 0]]),
+        "reward": np.array([*y_train[ix_train, 1]]).reshape(-1, 1),
+    }
+    ix_test = range(0, x_test.shape[0])
+    test = {
+        "state": np.array([*x_test[ix_test, 0]]),
+        "action": np.array([*x_test[ix_test, 1]]),
+        "next_state": np.array([*y_test[ix_test, 0]]),
+        "reward": np.array([*y_test[ix_test, 1]]).reshape(-1, 1),
+    }
+
+    return train, test
