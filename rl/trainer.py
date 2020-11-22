@@ -1,45 +1,20 @@
 import datetime
 import numpy as np
-import random
 import tensorflow as tf
 from pathlib import Path
 
 
-class Agent:
-    """Simple Q learning agent"""
+class RandomAgent:
+    """The world's simplest agent!"""
 
-    def __init__(self, observation_space, action_space, discount=0.95):
-        self.observation_space = observation_space
+    def __init__(self, action_space):
         self.action_space = action_space
-        self.discount = discount
-        self.model = self.build_model()
+
+    def act(self):
+        return self.action_space.sample()
 
     def build_model(self):
-        model = tf.keras.Sequential()
-        model.add(
-            tf.keras.layers.Dense(
-                self.action_space, input_shape=(self.observation_space,), kernel_initializer="zeros", use_bias=False
-            )
-        )
-        sgd = tf.keras.optimizers.SGD(learning_rate=0.1, momentum=0.0, nesterov=False, name="SGD")
-        model.compile(optimizer=sgd, loss="mse")
-        return model
-
-    def act(self, state):
-        return self.model.predict(state)[0]
-
-    def get_target_q_values(self, state, action, next_state, reward, done):
-        # Q values for actions not taken should be zero.
-        q_values_state = self.model.predict(state)
-
-        # Q_sa = derived policy = max quality env/action = max_a' Q(s', a')
-        q_values_next_state = np.max(self.model.predict(next_state))
-        if done:
-            q_values_state[0][action] = reward
-        else:
-            # reward + gamma * max_a' Q(s', a')
-            q_values_state[0][action] = reward + self.discount * q_values_next_state
-        return q_values_state
+        pass
 
 
 class Trainer:
@@ -50,7 +25,7 @@ class Trainer:
         self.env = env
         env.seed(seed)
         self.nr_tiles = np.count_nonzero(env.maze.to_impassable() == 0)
-        self.agent = Agent(self.nr_tiles, self.env.action_space.n)
+        self.agent = RandomAgent(self.env.action_space)
         # check_env requires stable_baselines3 which requires pytorch - This is a overhead for this single command
         # just comment it in if pytorch and stable_baselines3 is installed
         # check_env(self.env)
@@ -59,7 +34,8 @@ class Trainer:
         # Not required if check_env is commented out. Can be run anyway to have it for the case that check_env is used
         self.env.reset()
 
-    def train(self, epochs, epsilon, max_episode_length, is_human_mode, save_to_file=False):
+    def train(self, epochs, max_episode_length, is_human_mode, randomize_start=True, save_to_file=False):
+        print(f"Start training. Possible memories: {(self.nr_tiles * self.agent.action_space.n) - 4}")
         memories = []
         start_time = datetime.datetime.now()
 
@@ -67,7 +43,7 @@ class Trainer:
             game_over = False
 
             # get initial state (1d flattened canvas)
-            self.env.reset()
+            self.env.reset(randomize_start)
             state = self.env.maze.to_valid_obs()
             state = state.reshape(1, -1)
 
@@ -76,10 +52,7 @@ class Trainer:
                 self.env.render("human") if is_human_mode else self.env.render("rgb_array")
 
                 # Get next action
-                if np.random.rand() < epsilon:
-                    action = random.choice(range(self.agent.action_space))
-                else:
-                    action = np.argmax(self.agent.act(state))
+                action = self.agent.act()
 
                 # Apply action, get reward and new state
                 next_state, reward, done, _ = self.env.step(action)
@@ -90,7 +63,7 @@ class Trainer:
                     game_over = True
 
                 # Store episode if it wasn't experienced before
-                action_one_hot = tf.keras.utils.to_categorical(action, num_classes=self.agent.action_space)
+                action_one_hot = tf.keras.utils.to_categorical(action, num_classes=self.agent.action_space.n)
                 s = state.reshape(self.nr_tiles)
                 n_s = next_state.reshape(self.nr_tiles)
                 if not any([np.array_equal(s, m[0]) and np.array_equal(action_one_hot, m[1]) for m in memories]):
@@ -98,10 +71,6 @@ class Trainer:
                     memories.append([s, action_one_hot, n_s, reward, game_over])
 
                 n_steps += 1
-
-                # Train neural network model
-                target_q_values = self.agent.get_target_q_values(state, action, next_state, reward, done)
-                self.agent.model.fit(state, target_q_values, epochs=1, batch_size=1, verbose=0)
                 state = next_state
 
                 if game_over:
@@ -115,7 +84,7 @@ class Trainer:
         print(f"n_epoch: {epochs}, time: {t}")
 
         if save_to_file:
-            print("Saving memory to file!")
+            print(f"Saving {len(memories)} memories to file.")
             save_memories_to_file(memories, filename=self.env.maze.__str__())
         return seconds
 
