@@ -16,7 +16,7 @@ epn = EPNetworkRL(
     env=env,
     data=data,
     encoder_dims=[200, 200],
-    discriminator_dims=[50],
+    discriminator_dims=[10, 10],
     generator_loss=[
         "binary_crossentropy",
         "mean_squared_error",
@@ -24,6 +24,9 @@ epn = EPNetworkRL(
     seed=seed_value,
 )
 epn.save_model_architecture_images()
-epn.visualize_outputs_to_file(state="pre_training")
-epn.train(epochs=50, batch_size=2, steps_per_epoch=100, train_generator_supervised=False)
-epn.visualize_outputs_to_file(state="post_training")
+# epn.train_generator(epochs=100, batch_size=8)
+epn.visualize_outputs_to_file(state="post_supervised_gen", test_or_train_data="train")
+epn.visualize_outputs_to_file(state="post_supervised_gen", test_or_train_data="test")
+# epn.visualize_outputs_to_file(state="pre_training", test_or_train_data="test")
+# epn.visualize_outputs_to_file(state="pre_training", test_or_train_data="train")
+epn.train(epochs=60, batch_size=4, steps_per_epoch=200, train_generator_supervised=True)

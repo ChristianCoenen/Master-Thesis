@@ -7,6 +7,7 @@ from tensorflow.keras.layers import Input, Dense
 from tensorflow.keras.models import Model
 import matplotlib.pyplot as plt
 import numpy as np
+import random
 
 
 class EPNetworkRL(EPNetwork):
@@ -47,7 +48,7 @@ class EPNetworkRL(EPNetwork):
             ],
             model_name="generator",
         )
-        self.generator.compile(loss=self.generator_loss, optimizer="adam", metrics=["accuracy"])
+        self.generator.compile(loss=self.generator_loss, optimizer="adam", metrics=["accuracy", "mse"])
 
         self.discriminator = self.build_discriminator(
             input_tensors=[
@@ -58,6 +59,7 @@ class EPNetworkRL(EPNetwork):
             ],
             output_layers=[Dense(1, activation="sigmoid", name="real_or_fake")],
             model_name="discriminator",
+            use_dropout_layers=False,
         )
         self.discriminator.compile(
             loss=["binary_crossentropy"], optimizer=Adam(lr=0.0002, beta_1=0.5), metrics=["accuracy"]
@@ -85,8 +87,12 @@ class EPNetworkRL(EPNetwork):
         discriminated = discriminator(discriminator_inputs)
         return Model(inputs, discriminated, name=model_name)
 
-    def train_autoencoder(self, **kwargs):
-        pass
+    def train_generator(self, **kwargs):
+        self.generator.fit(
+            [self.train_data["state"], self.train_data["action"]],
+            [self.train_data["next_state"], self.train_data["reward"]],
+            **kwargs,
+        )
 
     def train(self, epochs: int, batch_size: int, steps_per_epoch: int, train_generator_supervised: bool):
         half_batch = int(batch_size / 2)
@@ -137,8 +143,9 @@ class EPNetworkRL(EPNetwork):
                     f">{epoch+1}, {step+1:0{len(str(steps_per_epoch))}d}/{steps_per_epoch}, d={d_loss:.3f}, g={g_loss:.3f}"
                 )
 
-            self.visualize_outputs_to_file(state=f"epoch_{epoch+1}")
             self.summarize_performance()
+            self.visualize_outputs_to_file(state=f"epoch_{epoch+1}", test_or_train_data="test")
+            self.visualize_outputs_to_file(state=f"epoch_{epoch+1}", test_or_train_data="train")
 
     def summarize_performance(self, n=100):
         # evaluate discriminator on fake examples
@@ -177,44 +184,49 @@ class EPNetworkRL(EPNetwork):
         )
         super().save_model_architecture_images(models, path, fmt)
 
-    def visualize_outputs_to_file(self, state, n_samples=9, path="images/epn_rl/plots"):
+    def visualize_outputs_to_file(self, state, n_samples=9, test_or_train_data="test", path="images/epn_rl/plots"):
+        print(f"Using {'test' if test_or_train_data == 'test' else 'train'} samples for plots!")
+        data = self.test_data if test_or_train_data == "test" else self.train_data
+        indexes = random.sample(range(data["state"].shape[0]), n_samples)
         width = n_samples
-        height = 3
+        height = 1
         plt.figure(figsize=(width, height))
         for idx in range(n_samples):
             # evaluate discriminator on fake examples
-            test_index = np.random.randint(0, self.test_data["state"].shape[0], 1)
-            gen_inputs = [self.test_data["state"][test_index], self.test_data["action"][test_index]]
+            gen_inputs = [data["state"][indexes[idx]].reshape(1, -1), data["action"][indexes[idx]].reshape(1, -1)]
             next_state, reward = self.generator.predict(gen_inputs)
 
             # Sampled maze state + action
             maze_rgb = self.env.maze.to_rgb()
             impassable = self.env.maze.to_impassable()
             counter = 0
+            next_state_idx = np.argmax(next_state[0])
             for row in range(maze_rgb.shape[0]):
                 for column in range(maze_rgb.shape[1]):
                     if impassable[row, column]:
                         continue
                     else:
-                        if self.test_data["state"][test_index][0][counter]:
+                        if gen_inputs[0][0][counter]:
                             maze_rgb[row, column] = [51, 153, 255]
                         else:
                             maze_rgb[row, column] = [224, 224, 224]
+
+                        if counter == next_state_idx:
+                            # Color the block as red if its the one predicted as next state with highest accuracy
+                            maze_rgb[row, column] = [250, 100, 100]
                         counter += 1
 
             add_subplot(image=maze_rgb, n_cols=height, n_rows=width, index=1 + idx)
             plt.annotate(
-                self.env.motions._fields[np.argmax(self.test_data["action"][test_index])],
-                xy=(0.25, -0.5),
-                fontsize="medium",
+                f"{self.env.motions._fields[np.argmax(gen_inputs[1])]}, {round(float(reward), 2)}",
+                xy=(0, -0.5),
+                fontsize="x-small",
             )
-
-            # Sampled maze state + action with next state prediction values
-            add_subplot(image=maze_rgb, n_cols=height, n_rows=width, index=1 + idx + n_samples)
-            plt.annotate(round(float(reward), 2), xy=(0.25, -0.5), fontsize="small")
             annotate_maze(next_state[0], self.env)
 
-        save_plot_as_image(path=path, filename=f"{self.nr_tiles}{state}", dpi=300 + self.nr_tiles * 5)
+        save_plot_as_image(
+            path=path, filename=f"{self.nr_tiles}_{state}_{test_or_train_data}.png", dpi=300 + self.nr_tiles * 5
+        )
 
 
 def annotate_maze(values, env):
@@ -231,10 +243,3 @@ def annotate_maze(values, env):
                     fontsize=5 / ((env.maze.size[0] * env.maze.size[1]) / 15),
                 )
                 values = np.delete(values, 0)
-
-
-def annotate_action_values(n_cols, n_rows, index, action_names, values):
-    subplot = plt.subplot(n_cols, n_rows, index)
-    subplot.axis("off")
-    for idx in range(len(action_names)):
-        subplot.text(0, 0.75 - idx / 4, f"{action_names[idx]}: {str(np.round(values[idx], 2))}", fontsize="x-small")

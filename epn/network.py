@@ -267,11 +267,6 @@ class EPNetwork:
         return Model(inputs, discriminated, name=model_name)
 
     @abc.abstractmethod
-    def train_autoencoder(self, **kwargs):
-        """ When using an epn architecture, it should always be possible to train the autoencoder separately """
-        pass
-
-    @abc.abstractmethod
     def train(self, epochs: int, batch_size: int, steps_per_epoch: int, train_encoder: bool):
         """ When using a epn architecture, a train function has to be provided """
         pass
