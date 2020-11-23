@@ -147,6 +147,9 @@ class EPNetworkRL(EPNetwork):
 
             self.summarize_performance()
 
+        self.visualize_outputs_to_file(state=f"epoch_{epochs}", test_or_train_data="test")
+        self.visualize_outputs_to_file(state=f"epoch_{epochs}", test_or_train_data="train")
+
     def summarize_performance(self, n=100):
         # evaluate discriminator on fake examples
         test_indices = np.random.randint(0, self.test_data["state"].shape[0], n)
