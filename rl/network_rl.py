@@ -98,6 +98,8 @@ class EPNetworkRL(EPNetwork):
         half_batch = int(batch_size / 2)
         # manually enumerate epochs
         for epoch in range(epochs):
+            self.visualize_outputs_to_file(state=f"epoch_{epoch}", test_or_train_data="test")
+            self.visualize_outputs_to_file(state=f"epoch_{epoch}", test_or_train_data="train")
             # enumerate batches over the training set
             for step in range(steps_per_epoch):
                 """ Discriminator training """
@@ -144,8 +146,6 @@ class EPNetworkRL(EPNetwork):
                 )
 
             self.summarize_performance()
-            self.visualize_outputs_to_file(state=f"epoch_{epoch+1}", test_or_train_data="test")
-            self.visualize_outputs_to_file(state=f"epoch_{epoch+1}", test_or_train_data="train")
 
     def summarize_performance(self, n=100):
         # evaluate discriminator on fake examples

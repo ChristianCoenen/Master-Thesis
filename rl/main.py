@@ -23,10 +23,6 @@ epn = EPNetworkRL(
     ],
     seed=seed_value,
 )
+epn.train_generator(epochs=400, batch_size=4)
 epn.save_model_architecture_images()
-# epn.train_generator(epochs=100, batch_size=8)
-epn.visualize_outputs_to_file(state="post_supervised_gen", test_or_train_data="train")
-epn.visualize_outputs_to_file(state="post_supervised_gen", test_or_train_data="test")
-# epn.visualize_outputs_to_file(state="pre_training", test_or_train_data="test")
-# epn.visualize_outputs_to_file(state="pre_training", test_or_train_data="train")
 epn.train(epochs=60, batch_size=4, steps_per_epoch=200, train_generator_supervised=True)
