@@ -39,23 +39,23 @@ class EPNetworkRL(EPNetwork):
         # Build Autoencoder
         self.generator = self.build_encoder(
             input_tensors=[
-                Input(shape=self.nr_valid_tiles, name="state"),
-                Input(shape=self.env.action_space.n, name="action"),
+                Input(shape=1, name="state"),
+                Input(shape=1, name="action"),
             ],
             output_layers=[
-                Dense(self.nr_valid_tiles, activation="softmax", name=f"next_state"),
+                Dense(1, activation="sigmoid", name=f"next_state"),
                 Dense(1, activation="tanh", name=f"reward"),
             ],
             model_name="generator",
         )
-        self.generator.compile(loss=self.generator_loss, optimizer="adam", metrics=["accuracy", "mse"])
+        self.generator.compile(loss=self.generator_loss, optimizer="adam", metrics=["mse"])
 
         self.discriminator = self.build_discriminator(
             input_tensors=[
-                Input(shape=self.nr_valid_tiles, name="state"),
-                Input(shape=self.env.action_space.n, name="action"),
-                Input(shape=self.nr_valid_tiles, name="next_state"),
-                Input(shape=1, name="reward"),
+                Input(1, name="state"),
+                Input(1, name="action"),
+                Input(1, name="next_state"),
+                Input(1, name="reward"),
             ],
             output_layers=[Dense(1, activation="sigmoid", name="real_or_fake")],
             model_name="discriminator",
@@ -89,8 +89,11 @@ class EPNetworkRL(EPNetwork):
 
     def train_generator(self, **kwargs):
         self.generator.fit(
-            [self.train_data["state"], self.train_data["action"]],
-            [self.train_data["next_state"], self.train_data["reward"]],
+            [
+                np.argmax(self.train_data["state"], axis=1) / self.nr_valid_tiles,
+                np.argmax(self.train_data["action"], axis=1) / self.env.action_space.n,
+            ],
+            [np.argmax(self.train_data["next_state"], axis=1) / self.nr_valid_tiles, self.train_data["reward"]],
             **kwargs,
         )
 
@@ -188,7 +191,7 @@ class EPNetworkRL(EPNetwork):
         super().save_model_architecture_images(models, path, fmt)
 
     def visualize_outputs_to_file(
-        self, state, n_samples=9, trajectories=False, test_or_train_data="test", path="images/epn_rl/plots"
+        self, state, n_samples=5, trajectories=False, test_or_train_data="test", path="images/epn_rl/plots"
     ):
         print(f"Using {'test' if test_or_train_data == 'test' else 'train'} samples for plots!")
         data = self.test_data if test_or_train_data == "test" else self.train_data
@@ -197,12 +200,14 @@ class EPNetworkRL(EPNetwork):
         height = 1
         plt.figure(figsize=(width, height))
 
-        next_state = data["state"][indexes[0]].reshape(1, -1)
+        next_state = (np.argmax(data["state"][indexes[0]]) / self.nr_valid_tiles).reshape(1, -1)
         for idx in range(n_samples):
             # evaluate discriminator on fake examples
             gen_inputs = [
-                data["state"][indexes[idx]].reshape(1, -1) if not trajectories else next_state,
-                data["action"][indexes[idx]].reshape(1, -1),
+                (np.argmax(data["state"][indexes[idx]]) / self.nr_valid_tiles).reshape(1, -1)
+                if not trajectories
+                else next_state,
+                (np.argmax(data["action"][indexes[idx]]) / self.env.action_space.n).reshape(1, -1),
             ]
             next_state, reward = self.generator.predict(gen_inputs)
 
@@ -210,8 +215,8 @@ class EPNetworkRL(EPNetwork):
             maze_rgb = self.env.maze.to_rgb()
             impassable = self.env.maze.to_impassable()
             counter = 0
-            next_state_idx = np.argmax(next_state[0])
-            state_idx = np.argmax(gen_inputs[0][0])
+            next_state_idx = round(next_state[0][0] * self.nr_valid_tiles)
+            state_idx = round(gen_inputs[0][0][0] * self.nr_valid_tiles)
             for row in range(maze_rgb.shape[0]):
                 for column in range(maze_rgb.shape[1]):
                     if impassable[row, column]:
@@ -229,11 +234,13 @@ class EPNetworkRL(EPNetwork):
 
             add_subplot(image=maze_rgb, n_cols=height, n_rows=width, index=1 + idx)
             plt.annotate(
-                f"{self.env.motions._fields[np.argmax(gen_inputs[1])]}, {round(float(reward), 2)}",
+                f"{self.env.motions._fields[int(round(gen_inputs[1][0][0] * self.env.action_space.n))]}  "
+                f" {round(float(reward), 2)}",
                 xy=(0, -0.5),
                 fontsize="x-small",
             )
-            annotate_maze(next_state[0], self.env)
+            # Comment in to show probabilities for each state
+            # annotate_maze(next_state[0], self.env)
 
         save_plot_as_image(
             path=path, filename=f"{self.nr_tiles}_{state}_{test_or_train_data}.png", dpi=300 + self.nr_tiles * 5
