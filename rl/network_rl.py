@@ -59,7 +59,6 @@ class EPNetworkRL(EPNetwork):
             ],
             output_layers=[Dense(1, activation="sigmoid", name="real_or_fake")],
             model_name="discriminator",
-            use_dropout_layers=False,
         )
         self.discriminator.compile(
             loss=["binary_crossentropy"], optimizer=Adam(lr=0.0002, beta_1=0.5), metrics=["accuracy"]
@@ -117,7 +116,7 @@ class EPNetworkRL(EPNetwork):
                 ]
                 labels = np.vstack((np.ones(shape=(half_batch, 1)), np.zeros(shape=(half_batch, 1))))
                 # One-sided label smoothing (not sure if it makes sense in rl setting)
-                # labels[:half_batch] = 0.9
+                labels[:half_batch] = 0.9
                 # update discriminator model weights
                 d_loss, _ = self.discriminator.train_on_batch(x_discriminator, labels)
 
