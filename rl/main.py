@@ -15,15 +15,15 @@ data = datasets.get_maze_memories(dataset_path, shuffle=True)
 epn = EPNetworkRL(
     env=env,
     data=data,
-    encoder_dims=[200, 200],
-    discriminator_dims=[10, 10],
+    encoder_dims=[30, 50],
+    discriminator_dims=[10],
     generator_loss=[
         "binary_crossentropy",
         "mean_squared_error",
     ],
     seed=seed_value,
 )
-epn.train_generator(epochs=400, batch_size=4)
+# epn.train_generator(epochs=200, batch_size=4)
 epn.save_model_architecture_images()
 epn.train(epochs=60, batch_size=4, steps_per_epoch=200, train_generator_supervised=True)
 for i in range(5):

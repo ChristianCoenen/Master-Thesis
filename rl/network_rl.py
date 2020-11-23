@@ -187,7 +187,9 @@ class EPNetworkRL(EPNetwork):
         )
         super().save_model_architecture_images(models, path, fmt)
 
-    def visualize_outputs_to_file(self, state, n_samples=9, test_or_train_data="test", path="images/epn_rl/plots"):
+    def visualize_outputs_to_file(
+        self, state, n_samples=5, trajectories=False, test_or_train_data="test", path="images/epn_rl/plots"
+    ):
         print(f"Using {'test' if test_or_train_data == 'test' else 'train'} samples for plots!")
         data = self.test_data if test_or_train_data == "test" else self.train_data
         indexes = random.sample(range(data["state"].shape[0]), n_samples)
@@ -231,7 +233,8 @@ class EPNetworkRL(EPNetwork):
                 xy=(0, -0.5),
                 fontsize="x-small",
             )
-            annotate_maze(next_state[0], self.env)
+            # Comment in to show probabilities for each state
+            # annotate_maze(next_state[0], self.env)
 
         save_plot_as_image(
             path=path, filename=f"{self.nr_tiles}_{state}_{test_or_train_data}.png", dpi=300 + self.nr_tiles * 5
