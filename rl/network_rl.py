@@ -194,9 +194,14 @@ class EPNetworkRL(EPNetwork):
         width = n_samples
         height = 1
         plt.figure(figsize=(width, height))
+
+        next_state = data["state"][indexes[0]].reshape(1, -1)
         for idx in range(n_samples):
             # evaluate discriminator on fake examples
-            gen_inputs = [data["state"][indexes[idx]].reshape(1, -1), data["action"][indexes[idx]].reshape(1, -1)]
+            gen_inputs = [
+                data["state"][indexes[idx]].reshape(1, -1) if not trajectories else next_state,
+                data["action"][indexes[idx]].reshape(1, -1),
+            ]
             next_state, reward = self.generator.predict(gen_inputs)
 
             # Sampled maze state + action
@@ -204,12 +209,13 @@ class EPNetworkRL(EPNetwork):
             impassable = self.env.maze.to_impassable()
             counter = 0
             next_state_idx = np.argmax(next_state[0])
+            state_idx = np.argmax(gen_inputs[0][0])
             for row in range(maze_rgb.shape[0]):
                 for column in range(maze_rgb.shape[1]):
                     if impassable[row, column]:
                         continue
                     else:
-                        if gen_inputs[0][0][counter]:
+                        if state_idx == counter:
                             maze_rgb[row, column] = [51, 153, 255]
                         else:
                             maze_rgb[row, column] = [224, 224, 224]
