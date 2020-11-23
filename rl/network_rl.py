@@ -187,7 +187,9 @@ class EPNetworkRL(EPNetwork):
         )
         super().save_model_architecture_images(models, path, fmt)
 
-    def visualize_outputs_to_file(self, state, n_samples=9, test_or_train_data="test", path="images/epn_rl/plots"):
+    def visualize_outputs_to_file(
+        self, state, n_samples=9, trajectories=False, test_or_train_data="test", path="images/epn_rl/plots"
+    ):
         print(f"Using {'test' if test_or_train_data == 'test' else 'train'} samples for plots!")
         data = self.test_data if test_or_train_data == "test" else self.train_data
         indexes = random.sample(range(data["state"].shape[0]), n_samples)
