@@ -9,8 +9,8 @@ from pathlib import Path
 from epn.custom_layers import DenseTranspose
 
 
-class EPNetwork:
-    """ The entropy propagation base class. It defines the base architecture and is highly customizable. """
+class Network:
+    """ The network base class. It defines the base architecture and is highly customizable. """
 
     def __init__(self, weight_sharing: bool, encoder_dims: List[int], discriminator_dims: List[int], seed: int):
         """

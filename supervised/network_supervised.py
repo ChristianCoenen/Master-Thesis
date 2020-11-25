@@ -6,16 +6,16 @@ from tensorflow.keras.utils import to_categorical
 from numpy.random import randint
 from numpy import zeros, ones
 from epn.helper import add_subplot, save_plot_as_image
-from epn.network import EPNetwork
+from epn.network import Network
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
 import math
 
 
-class EPNetworkSupervised(EPNetwork):
+class NetworkSupervised(Network):
     """
-    A class implementing the Entropy Propagation Network architecture consisting of:
+    A class implementing the Network architecture consisting of:
 
     1. Encoder and Decoder Model (Decoder will mirror the encoder layers) (and weights if weight sharing is activated)
     2. Autoencoder model which is constructed by combining the Encoder model with the Decoder model

@@ -1,6 +1,6 @@
 from typing import List, Optional
 from numpy.random import randint
-from epn.network import EPNetwork
+from epn.network import Network
 from epn.helper import add_subplot, save_plot_as_image
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.layers import Input, Dense
@@ -10,9 +10,9 @@ import numpy as np
 import random
 
 
-class EPNetworkRL(EPNetwork):
+class NetworkRL(Network):
     """
-    A class implementing the Entropy Propagation Network architecture in an reinforcement learning setting:
+    A class implementing the Network architecture in an reinforcement learning setting:
     """
 
     def __init__(

@@ -1,5 +1,5 @@
 from epn import datasets
-from supervised.network_supervised import EPNetworkSupervised
+from supervised.network_supervised import NetworkSupervised
 import epn.helper as helper
 
 seed_value = 30
@@ -8,7 +8,7 @@ helper.set_seeds(seed_value)
 
 data = datasets.get_mnist(fashion=False)
 # Configure and train the Entropy Propagation Network
-epn = EPNetworkSupervised(
+epn = NetworkSupervised(
     data=data,
     latent_dim=20,
     autoencoder_loss=["categorical_crossentropy", "binary_crossentropy"],

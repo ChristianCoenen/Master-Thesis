@@ -3,7 +3,7 @@ import epn.helper as helper
 from maze.predefined_maze import *
 from maze import Maze
 from epn import datasets
-from rl.network_rl import EPNetworkRL
+from rl.network_rl import NetworkRL
 
 seed_value = 30
 helper.set_seeds(seed_value)
@@ -12,7 +12,7 @@ helper.set_seeds(seed_value)
 env = gym.make("maze:Maze-v0", maze=Maze(x10))
 dataset_path = f"./data/{env.maze.__repr__()}.npy"
 data = datasets.get_maze_memories(dataset_path, shuffle=True)
-epn = EPNetworkRL(
+epn = NetworkRL(
     env=env,
     data=data,
     encoder_dims=[200, 200],
