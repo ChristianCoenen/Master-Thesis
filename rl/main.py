@@ -9,29 +9,23 @@ seed_value = 30
 helper.set_seeds(seed_value)
 
 
-env = gym.make("maze:Maze-v0", maze=Maze(x3))
+env = gym.make("maze:Maze-v0", maze=Maze(x10))
 dataset_path = f"./data/{env.maze.__repr__()}.npy"
 data = datasets.get_maze_memories(dataset_path, shuffle=True)
 epn = EPNetworkRL(
     env=env,
     data=data,
-    latent_dim=5,
     encoder_dims=[200, 200],
-    discriminator_dims=[200, 200],
-    weight_sharing=True,
-    autoencoder_loss=[
+    discriminator_dims=[10, 10],
+    generator_loss=[
         "binary_crossentropy",
         "mean_squared_error",
-        "binary_crossentropy",
-        "binary_crossentropy",
-        "binary_crossentropy",
-        "binary_crossentropy",
     ],
     seed=seed_value,
 )
+epn.train_generator(epochs=400, batch_size=4)
 epn.save_model_architecture_images()
-epn.visualize_outputs_to_file(state="pre_autoencoder_training")
-epn.train_autoencoder(epochs=100, batch_size=8)
-epn.visualize_outputs_to_file(state="post_autoencoder_training")
-epn.train(epochs=50, batch_size=8, steps_per_epoch=100, train_encoder=True)
-epn.visualize_outputs_to_file(state="post_gan_training")
+epn.train(epochs=60, batch_size=4, steps_per_epoch=200, train_generator_supervised=True)
+for i in range(5):
+    epn.visualize_outputs_to_file(f"trajectory{i}", trajectories=True, test_or_train_data="test")
+    epn.visualize_outputs_to_file(f"trajectory{i}", trajectories=True, test_or_train_data="train")

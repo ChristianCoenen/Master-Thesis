@@ -126,7 +126,10 @@ class MazeEnv(BaseEnv):
         if hasattr(self.maze.objects, "visited"):
             self.maze.objects.visited.positions = [self.start_pos]
         if randomize_start:
-            self.maze.objects.agent.positions = [list(random.choice(self.maze.objects.free.positions))]
+            # This approach does not work if there is more than 1 goal position
+            possible_start_pos = self.maze.objects.free.positions
+            updated_start_pos = [x for x in possible_start_pos if not (x == self.maze.objects.goal.positions[0]).all()]
+            self.maze.objects.agent.positions = [list(random.choice(updated_start_pos))]
         else:
             self.maze.objects.agent.positions = [self.start_pos]
         self.maze.objects.goal.positions = [self.goal_pos]
