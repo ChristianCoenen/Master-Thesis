@@ -34,7 +34,7 @@ class NetworkRL(Network):
         self.env = env
         self.classification_dim = self.nr_valid_tiles + self.env.action_space.n + 1
         self.generator_loss = generator_loss
-        self.train_data, self.test_data = data
+        self.train_data, self.test_data, self.combined_data = data
 
         # Build Autoencoder
         self.generator = self.build_encoder(

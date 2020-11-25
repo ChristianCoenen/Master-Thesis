@@ -54,5 +54,12 @@ def get_maze_memories(path, test_size=0.2, shuffle=False):
         "next_state": np.array([*y_test[ix_test, 0]]),
         "reward": np.array([*y_test[ix_test, 1]]).reshape(-1, 1),
     }
+    ix_data = range(0, data.shape[0])
+    data = {
+        "state": np.array([*data[ix_data, 0]]),
+        "action": np.array([*data[ix_data, 1]]),
+        "next_state": np.array([*data[ix_data, 2]]),
+        "reward": np.array([*data[ix_data, 3]]).reshape(-1, 1),
+    }
 
-    return train, test
+    return train, test, data
