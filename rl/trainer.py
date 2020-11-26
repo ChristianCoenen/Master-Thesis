@@ -4,7 +4,7 @@ import tensorflow as tf
 from pathlib import Path
 
 
-class RandomAgent:
+class Agent:
     """The world's simplest agent!"""
 
     def __init__(self, action_space):
@@ -25,7 +25,7 @@ class Trainer:
         self.env = env
         env.seed(seed)
         self.nr_tiles = np.count_nonzero(env.maze.to_impassable() == 0)
-        self.agent = RandomAgent(self.env.action_space)
+        self.agent = Agent(self.env.action_space)
         # check_env requires stable_baselines3 which requires pytorch - This is a overhead for this single command
         # just comment it in if pytorch and stable_baselines3 is installed
         # check_env(self.env)

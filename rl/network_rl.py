@@ -20,7 +20,7 @@ class NetworkRL(Network):
         env,
         data,
         generator_loss,
-        encoder_dims: List[int],
+        generator_dims: List[int],
         discriminator_dims: List[int],
         seed: int,
     ):
@@ -28,7 +28,7 @@ class NetworkRL(Network):
         :param env: MazeEnv
             MazeEnv object initialized with the same maze that was used to generate the dataset.
         """
-        super().__init__(False, encoder_dims, discriminator_dims, seed)
+        super().__init__(False, generator_dims, discriminator_dims, seed)
         self.nr_valid_tiles = np.count_nonzero(env.maze.to_impassable() == 0)
         self.nr_tiles = env.maze.size[0] * env.maze.size[1]
         self.env = env
