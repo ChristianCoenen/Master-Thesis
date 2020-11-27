@@ -11,7 +11,7 @@ helper.set_seeds(seed_value)
 
 env = gym.make("maze:Maze-v0", maze=Maze(x10))
 dataset_path = f"./data/{env.maze.__repr__()}.npy"
-data = datasets.get_maze_memories(dataset_path, shuffle=True)
+data = datasets.get_maze_memories(dataset_path, shuffle=True, test_size=0.5)
 epn = EPNetworkRL(
     env=env,
     data=data,
