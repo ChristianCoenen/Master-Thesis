@@ -105,13 +105,13 @@ class NetworkRL(Network):
                 """ Discriminator training """
                 # get indices that are used to extract samples from the dataset
                 train_indices = np.random.randint(0, self.train_data["state"].shape[0], half_batch)
-                test_indices = np.random.randint(0, self.test_data["state"].shape[0], half_batch)
+                combined_indices = np.random.randint(0, self.combined_data["state"].shape[0], half_batch)
 
-                inputs = [self.test_data["state"][test_indices], self.test_data["action"][test_indices]]
+                inputs = [self.combined_data["state"][combined_indices], self.combined_data["action"][combined_indices]]
                 next_state, reward = self.generator.predict(inputs)
                 x_discriminator = [
-                    np.array([*self.train_data["state"][train_indices], *self.test_data["state"][test_indices]]),
-                    np.array([*self.train_data["action"][train_indices], *self.test_data["action"][test_indices]]),
+                    np.array([*self.train_data["state"][train_indices], *inputs[0]]),
+                    np.array([*self.train_data["action"][train_indices], *inputs[1]]),
                     np.array([*self.train_data["next_state"][train_indices], *next_state]),
                     np.array([*self.train_data["reward"][train_indices], *reward]),
                 ]
@@ -130,14 +130,14 @@ class NetworkRL(Network):
 
                 """ Generator training (discriminator weights deactivated!) """
                 # get indices that are used to extract samples from the dataset
-                test_indices = np.random.randint(0, self.test_data["state"].shape[0], batch_size)
+                combined_indices = np.random.randint(0, self.combined_data["state"].shape[0], batch_size)
 
                 # create inverted labels for the fake samples (because generator goal is to trick the discriminator)
                 # so our objective (label) is 1 and if discriminator says 1 we have an error of 0 and vice versa
                 labels = np.ones((batch_size, 1))
 
                 # update the generator via the discriminator's error
-                inputs = [self.test_data["state"][test_indices], self.test_data["action"][test_indices]]
+                inputs = [self.combined_data["state"][combined_indices], self.combined_data["action"][combined_indices]]
                 g_loss = self.gan.train_on_batch(inputs, labels)
 
                 # summarize loss on this batch
