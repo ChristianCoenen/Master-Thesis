@@ -15,8 +15,8 @@ data = datasets.get_maze_memories(dataset_path, shuffle=True, test_size=0.5)
 epn = NetworkRL(
     env=env,
     data=data,
-    encoder_dims=[200, 200],
-    discriminator_dims=[10, 10],
+    generator_dims=[10, 50],
+    discriminator_dims=[10],
     generator_loss=[
         "binary_crossentropy",
         "mean_squared_error",
