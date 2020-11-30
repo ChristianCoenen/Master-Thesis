@@ -25,7 +25,7 @@ epn = NetworkRL(
 )
 # epn.train_generator(epochs=400, batch_size=4)
 epn.save_model_architecture_images()
-epn.train(epochs=60, batch_size=4, steps_per_epoch=200, train_generator_supervised=True)
+epn.train(epochs=60, batch_size=4, steps_per_epoch=200, train_generator_supervised=False)
 for i in range(5):
     epn.visualize_outputs_to_file(f"trajectory{i}", trajectories=True, test_or_train_data="test")
     epn.visualize_outputs_to_file(f"trajectory{i}", trajectories=True, test_or_train_data="train")
