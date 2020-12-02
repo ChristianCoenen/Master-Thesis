@@ -14,3 +14,5 @@ entropy_propagation.egg-info/
 *.svg
 
 *.npy
+
+animations/media/
