@@ -1,9 +1,10 @@
 import datetime
-import random
-from experience import Experience
+import epn.helper as helper
+import gym
 from manim import *
+from manim import color as c
 from animations.network_m_object_simple import NetworkMobjectSimple
-from trainer import Trainer, format_time
+from rl.trainer import Trainer
 from maze.predefined_maze import x3
 from maze import Maze
 
@@ -13,9 +14,9 @@ class RLScene(Scene):
         "network_mob_config": {
             "neuron_radius": 0.25,
             "bias_radius": 0.25,
-            "bias_stroke_color": COLOR_MAP["GRAY"],
+            "bias_stroke_color": c.GRAY,
             "layer_to_layer_buff": LARGE_BUFF * 1.5,
-            "edge_propagation_color": COLOR_MAP["RED_C"],
+            "edge_propagation_color": c.RED,
             "nn_position": UP * 0.8,
             "include_bias": False,
             "neuron_to_neuron_buff": SMALL_BUFF,
@@ -26,41 +27,24 @@ class RLScene(Scene):
         },
     }
 
-    def __init__(self, **kwargs):
-        # init is not called when running it via manim, but I declared everything here to avoid IDE warnings
-        super().__init__(**kwargs)
-        self.trainer = None
-        self.epochs = None
-        self.max_episode_length = None
-        self.data_size = None
-        self.epsilon = None
-        self.memory_size = None
-
-        self.output_labels = None
-        self.maze = None
-        self.layer_sizes = None
-        self.network_mob = None
-        self.manim_weight_matrices = None
-        self.reward = None
-        self.epoch_step_counter = None
-
     def setup(self):
-        self.trainer = Trainer(maze=Maze(x3))
-        self.epochs = 1
-        self.max_episode_length = 10
-        self.data_size = 1
-        self.epsilon = 0.1
-        # self.memory_size = 8 * self.trainer.nr_tiles
-        self.memory_size = 1
+        seed_value = 30
+        helper.set_seeds(seed_value)
 
-        self.output_labels = VGroup(*[Text(name, font="Roboto") for name in self.trainer.env.motions._fields])
+        self.env = gym.make("maze:Maze-v0", maze=Maze(x3))
+        self.trainer = Trainer(self.env, seed_value)
+        self.epochs = 10
+        self.max_episode_length = 25
+        self.epsilon = 0.1
+
+        self.output_labels = VGroup(*[Text(name, font="Roboto") for name in self.env.motions._fields])
 
         # Initialize the maze
         self.init_maze()
 
         # Fill the layer sizes and weight matrices
         self.layer_sizes = []
-        for layer in self.trainer.model.layers:
+        for layer in self.trainer.agent.model.layers:
             self.layer_sizes.append(layer.input_shape[1]) if hasattr(layer, "input_shape") else None
             self.layer_sizes.append(layer.units) if hasattr(layer, "units") else None
 
@@ -86,11 +70,11 @@ class RLScene(Scene):
     ####################################################################################################################
     def get_maze_colors(self):
         colors = []
-        maze_values = self.trainer.env.maze.to_value()
+        maze_values = self.env.maze.to_value()
         for value in maze_values.flatten():
             # object_index is the index of the object which has the value specified
-            object_index = int(np.where([obj.value == value for obj in self.trainer.env.maze.objects])[0])
-            rgb_tuple = self.trainer.env.maze.objects[object_index].rgb
+            object_index = int(np.where([obj.value == value for obj in self.env.maze.objects])[0])
+            rgb_tuple = self.env.maze.objects[object_index].rgb
             rgb_hex = "#{:02x}{:02x}{:02x}".format(rgb_tuple[0], rgb_tuple[1], rgb_tuple[2])
             colors.append(rgb_hex)
         return colors
@@ -108,7 +92,7 @@ class RLScene(Scene):
     ####################################################################################################################
     def get_weights(self):
         weight_matrices = []
-        for idx, layer in enumerate(self.trainer.model.layers):
+        for idx, layer in enumerate(self.trainer.agent.model.layers):
             normal_weights = None
             bias_weights = None
             if hasattr(layer, "kernel") and layer.kernel is not None:
@@ -143,11 +127,11 @@ class RLScene(Scene):
             new_weight_matrix = weight_matrices[m_idx].flatten()
             for n_idx, number in enumerate(old_weight_matrix[0]):
                 if number.get_value() > new_weight_matrix[n_idx]:
-                    number.set_color(color=COLOR_MAP["RED_C"])
+                    number.set_color(color=c.RED)
                 elif number.get_value() < new_weight_matrix[n_idx]:
-                    number.set_color(color=COLOR_MAP["GREEN_C"])
+                    number.set_color(color=c.GREEN)
                 else:
-                    number.set_color(color=COLOR_MAP["WHITE"])
+                    number.set_color(color=c.WHITE)
                 number.set_value(new_weight_matrix[n_idx])
 
     ####################################################################################################################
@@ -171,119 +155,79 @@ class RLScene(Scene):
     def visualize_input(self, env_state):
         # Bias neuron is always activated (cause it is always 1)
         if hasattr(self.network_mob.layers[0], "bias") and self.network_mob.layers[0].bias is not None:
-            self.network_mob.layers[0].bias.set_fill(color=COLOR_MAP["WHITE"], opacity=1)
+            self.network_mob.layers[0].bias.set_fill(color=c.WHITE, opacity=1)
 
         for idx, bool_input in enumerate(env_state.flatten()):
             if bool_input:
-                self.network_mob.layers[0].neurons[idx].set_fill(color=COLOR_MAP["WHITE"], opacity=1)
+                self.network_mob.layers[0].neurons[idx].set_fill(color=c.WHITE, opacity=1)
             else:
                 self.network_mob.layers[0].neurons[idx].set_fill(opacity=0)
 
     def highlight_selected_action(self, action, is_random_action):
         for i in range(len(self.output_labels)):
             if i == action:
-                self.output_labels[i].set_color(COLOR_MAP["RED_C"] if is_random_action else COLOR_MAP["GREEN_C"])
+                self.output_labels[i].set_color(c.RED if is_random_action else c.GREEN)
             else:
-                self.output_labels[i].set_color(COLOR_MAP["WHITE"])
+                self.output_labels[i].set_color(c.WHITE)
 
     def show_reward(self, reward):
         self.reward[-1].set_value(reward)
-        self.reward[-1].set_color(COLOR_MAP["GREEN_C"] if reward >= 0 else COLOR_MAP["RED_C"])
+        self.reward[-1].set_color(c.GREEN if reward >= 0 else c.RED)
 
     def train(self):
-        self.trainer.train(
-            epochs=self.epochs,
-            data_size=self.data_size,
-            epsilon=self.epsilon,
-            max_episode_length=self.max_episode_length,
-            max_memory=self.memory_size,
-            is_human_mode=False,
-            trainer_scene=self,
-        )
-        start_time = datetime.datetime.now()
-
-        # Initialize experience replay object
-        experience = Experience(self.trainer.model, max_memory=self.memory_size)
-
-        # history of win/lose game
-        win_history = []
-        win_rate = 0.0
-
         for epoch in range(self.epochs):
-            loss = 0.0
             game_over = False
 
-            # get initial env_state (1d flattened canvas)
-            env_state = self.trainer.env.reset()
-            env_state = self.trainer.env.maze.to_valid_obs() if self.trainer.only_free_tiles else env_state
-            env_state = env_state.reshape(1, -1)
+            # get initial state (1d flattened canvas)
+            self.env.reset(randomize_start=False)
+            state = self.env.maze.to_valid_obs()
+            state = state.reshape(1, -1)
             # Show initial env state in maze and as input to the neurons
             self.update_maze()
             self.update_epoch_step_counter(epoch=epoch + 1, step=0)
-            self.visualize_input(env_state)
+            self.visualize_input(state)
 
             n_steps = 0
             for i in range(self.max_episode_length):
-                self.trainer.env.render("rgb_array")
+                self.env.render("rgb_array")
 
-                prev_env_state = env_state
                 # Get next action
-                outputs = experience.predict(prev_env_state)
                 if np.random.rand() < self.epsilon:
-                    action = random.choice(range(self.trainer.env.action_space.n))
+                    action = self.trainer.agent.act_random()
                     is_random_action = True
                 else:
-                    action = np.argmax(experience.predict(prev_env_state))
+                    action = np.argmax(self.trainer.agent.act(state))
                     is_random_action = False
 
-                self.network_mob.add_output_values(outputs, scale_factor=0.3)
+                q_values = self.trainer.agent.act(state)
+                self.network_mob.add_output_values(q_values, scale_factor=0.3)
 
-                # Apply action, get reward and new env_state
-                env_state, reward, done, _ = self.trainer.env.step(action)
-                env_state = self.trainer.env.maze.to_valid_obs() if self.trainer.only_free_tiles else None
-                env_state = env_state.reshape(1, -1)
+                # Apply action, get reward and new state
+                next_state, reward, done, _ = self.env.step(action)
+                next_state = self.env.maze.to_valid_obs()
+                next_state = next_state.reshape(1, -1)
 
                 self.highlight_selected_action(action, is_random_action=is_random_action)
                 self.show_reward(reward)
 
-                if done:
-                    win_history.append(1)
+                if done or i == self.max_episode_length - 1:
                     game_over = True
-                elif i == self.max_episode_length - 1:
-                    win_history.append(0)
-                    game_over = True
-
-                # Store episode (experience)
-                episode = [prev_env_state, action, reward, env_state, game_over]
-                experience.remember(episode)
-                n_steps += 1
 
                 # Train neural network model
-                inputs, targets = experience.get_data(data_size=self.data_size)
-                self.trainer.model.fit(inputs, targets, epochs=1, batch_size=1, verbose=0)
-                loss = self.trainer.model.evaluate(inputs, targets, verbose=0)
+                target_q_values = self.trainer.agent.get_target_q_values(state, action, next_state, reward, done)
+                self.trainer.agent.model.fit(state, target_q_values, epochs=1, batch_size=1, verbose=0)
+
+                n_steps += 1
+                state = next_state
 
                 self.update_weights()
                 self.wait(1)
                 self.update_maze()
                 self.update_epoch_step_counter(epoch=epoch + 1, step=i + 1)
-                self.visualize_input(env_state)
+                self.visualize_input(state)
 
                 if game_over:
                     break
-
-            dt = datetime.datetime.now() - start_time
-            t = format_time(dt.total_seconds())
-            print(
-                f"Epoch: {epoch:03d}/{self.epochs - 1} | Loss: {loss:.4f} | Steps: {n_steps} | "
-                f"Win count: {sum(win_history)} | Win rate: {win_rate:.3f} | time: {t}"
-            )
-
-        dt = datetime.datetime.now() - start_time
-        seconds = dt.total_seconds()
-        t = format_time(seconds)
-        print(f"n_epoch: {self.epochs}, max_mem: {self.memory_size}, data: {self.data_size}, time: {t}")
-        return seconds
 
     ####################################################################################################################
     """ OTHER METHODS """
@@ -320,13 +264,13 @@ class RLScene(Scene):
 
         # Add reward object next to the output labels
         self.reward.scale(0.5)
-        self.reward.arrange(RIGHT, buff=0)
+        self.reward.arrange(RIGHT, buff=SMALL_BUFF)
         self.reward.next_to(self.output_labels, RIGHT)
         self.add(self.reward)
 
         # Add epoch / step counter object in the upper left corner
         self.epoch_step_counter.scale(0.5)
-        [line.arrange(RIGHT, buff=0) for line in self.epoch_step_counter]
+        [line.arrange(RIGHT, buff=SMALL_BUFF) for line in self.epoch_step_counter]
         self.epoch_step_counter.arrange(DOWN, aligned_edge=RIGHT)
         self.epoch_step_counter.shift(UP * 3 + RIGHT * 4)
         self.add(self.epoch_step_counter)

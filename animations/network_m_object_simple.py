@@ -1,7 +1,7 @@
 from abc import ABC
 
 from manim import *
-from manim.constants import COLOR_MAP
+from manim import color as c
 from itertools import product
 import itertools as it
 
@@ -9,18 +9,18 @@ import itertools as it
 class NetworkMobjectSimple(VGroup, ABC):
     CONFIG = {
         "neuron_radius": 0.15,
-        "neuron_stroke_color": COLOR_MAP["BLUE_C"],
+        "neuron_stroke_color": c.BLUE,
         "neuron_stroke_width": 2,
-        "neuron_fill_color": COLOR_MAP["GREEN_C"],
+        "neuron_fill_color": c.GREEN,
         "bias_radius": 0.15,
-        "bias_stroke_color": COLOR_MAP["BLUE_C"],
+        "bias_stroke_color": c.BLUE,
         "bias_stroke_width": 2,
-        "bias_fill_color": COLOR_MAP["GREEN_C"],
+        "bias_fill_color": c.GREEN,
         "neuron_to_neuron_buff": MED_SMALL_BUFF,
         "layer_to_layer_buff": LARGE_BUFF,
-        "edge_color": COLOR_MAP["LIGHT_GREY"],
+        "edge_color": c.LIGHT_GREY,
         "edge_stroke_width": 2,
-        "edge_propagation_color": COLOR_MAP["YELLOW_C"],
+        "edge_propagation_color": c.YELLOW,
         "edge_propagation_time": 1,
         "nn_position": ORIGIN,
         "include_bias": False,
