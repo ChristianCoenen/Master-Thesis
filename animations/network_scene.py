@@ -1,4 +1,3 @@
-import datetime
 import epn.helper as helper
 import gym
 from manim import *
@@ -7,6 +6,8 @@ from animations.network_m_object_simple import NetworkMobjectSimple
 from rl.trainer import Trainer
 from maze.predefined_maze import x3
 from maze import Maze
+
+USE_BIAS = False
 
 
 class RLScene(Scene):
@@ -18,7 +19,7 @@ class RLScene(Scene):
             "layer_to_layer_buff": LARGE_BUFF * 1.5,
             "edge_propagation_color": c.RED,
             "nn_position": UP * 0.8,
-            "include_bias": False,
+            "include_bias": USE_BIAS,
             "neuron_to_neuron_buff": SMALL_BUFF,
         },
         "element_to_mobject_config": {
@@ -33,6 +34,7 @@ class RLScene(Scene):
 
         self.env = gym.make("maze:Maze-v0", maze=Maze(x3))
         self.trainer = Trainer(self.env, seed_value)
+        self.trainer.agent.model = self.trainer.agent.build_model(bias=USE_BIAS)
         self.epochs = 10
         self.max_episode_length = 25
         self.epsilon = 0.1

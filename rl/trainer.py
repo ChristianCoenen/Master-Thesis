@@ -13,11 +13,11 @@ class Agent:
         self.discount = discount
         self.model = self.build_model()
 
-    def build_model(self):
+    def build_model(self, bias=False):
         model = tf.keras.Sequential()
         model.add(
             tf.keras.layers.Dense(
-                self.action_space.n, input_shape=(self.observation_space,), kernel_initializer="zeros", use_bias=False
+                self.action_space.n, input_shape=(self.observation_space,), kernel_initializer="zeros", use_bias=bias
             )
         )
         sgd = tf.keras.optimizers.SGD(learning_rate=0.1, momentum=0.0, nesterov=False, name="SGD")
