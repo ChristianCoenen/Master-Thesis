@@ -1,5 +1,6 @@
 import numpy as np
 
+# Next line is to prevent Black from auto-reformatting the arrays
 # fmt: off
 x3 = np.array(
     [

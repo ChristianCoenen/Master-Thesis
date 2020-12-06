@@ -114,7 +114,7 @@ class Network:
                 )(x)
 
         # Output layers
-        # TODO: this part is not optimal and is a bit messy / hard to understand, but I don't see another solution.
+        # Note: This part is not optimal and is a bit messy / hard to understand, but I don't see another solution.
         # What's happening here is that decoder outputs are basically the same as encoder inputs, so we iterate through
         # the encoder inputs and create decoder layers. Because encoder inputs are concatenated and there is no direct
         # split in tensorflow, the weights are sliced to ensure that weight sharing is still working
@@ -238,7 +238,7 @@ class Network:
         generator: Model,
         discriminator: Model,
         ignored_layer_names: Optional[List[str]] = None,
-        model_name: str = "gan",
+        model_name: str = "GAN",
     ) -> Model:
         """
         Defines a GAN consisting of a generator and a discriminator model. The GAN is used to train the generator.

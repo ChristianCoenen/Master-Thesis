@@ -14,6 +14,10 @@ USE_BIAS = False
 
 
 class RLScene(Scene):
+    """
+    For a better understanding about what is happening here: https://docs.manim.community/en/v0.1.0/
+    Expect a flat learning curve due to the complexity of the library. It takes some time to get used to it.
+    """
     CONFIG = {
         "network_mob_config": {
             "neuron_radius": 0.25,

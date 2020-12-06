@@ -61,7 +61,29 @@ class Trainer:
         # Not required if check_env is commented out. Can be run anyway to have it for the case that check_env is used
         self.env.reset()
 
-    def train(self, epochs, max_episode_length, is_human_mode, epsilon, randomize_start=True, save_to_file=False):
+    def train(
+            self,
+            epochs: int,
+            max_episode_length: int,
+            is_human_mode: bool, epsilon: int,
+            randomize_start: bool = True,
+            save_to_file: bool = False
+    ):
+        """Trains a Q learning agent in a gym maze environment
+
+        :param epochs:
+            Number of epochs to train the agent
+        :param max_episode_length:
+            Maximum number of steps that one epoch lasts
+        :param is_human_mode:
+            Whether gym should render the environment during the training process or not
+        :param epsilon:
+            Exploration factor for the agent (0.1 = 10% exploration)
+        :param randomize_start:
+            Whether the agent should start at a random position at the beginning of an epoch
+        :param save_to_file:
+            Whether the acquired episodes are saved as .npy file after training
+        """
         print(f"Start training. Possible memories: {(self.nr_tiles * self.agent.action_space.n) - 4}")
         memories = []
         start_time = datetime.datetime.now()

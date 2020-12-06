@@ -15,6 +15,7 @@ from maze import VonNeumannMotion
 
 
 class BaseEnv(gym.Env, ABC):
+    """ Defines the gym interface """
     metadata = {"render.modes": ["human", "rgb_array"], "video.frames_per_second": 3}
     reward_range = (-float("inf"), float("inf"))
 
@@ -63,6 +64,7 @@ class BaseEnv(gym.Env, ABC):
 
 
 class Maze(BaseMaze):
+    """ Defines valid objects that can be created for a maze """
     def __init__(self, maze):
         self.x = maze
         super().__init__()
@@ -81,6 +83,7 @@ class Maze(BaseMaze):
 
 
 class MazeEnv(BaseEnv):
+    """ Maze environment that implements the gym interface """
     def __init__(self, maze):
         super().__init__()
         # Initialize Maze

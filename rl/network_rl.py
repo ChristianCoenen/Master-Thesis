@@ -27,7 +27,14 @@ class NetworkRL(Network):
         """
         :param env: MazeEnv
             MazeEnv object initialized with the same maze that was used to generate the dataset.
+        :param data:
+            Data that is trained on. Split into train and test data
+        :param generator_loss:
+            This parameter allows to define loss functions for the neural network outputs (e.g. next state and reward)
+
+        The other parameters are just passed to 'Network' and are explained there
         """
+        # weight sharing not possible due to normal feed-forward network -> set to False
         super().__init__(False, generator_dims, discriminator_dims, seed)
         self.nr_valid_tiles = np.count_nonzero(env.maze.to_impassable() == 0)
         self.nr_tiles = env.maze.size[0] * env.maze.size[1]
@@ -50,6 +57,7 @@ class NetworkRL(Network):
         )
         self.generator.compile(loss=self.generator_loss, optimizer="adam", metrics=["accuracy", "mse"])
 
+        # Build Discriminator
         self.discriminator = self.build_discriminator(
             input_tensors=[
                 Input(shape=self.nr_valid_tiles, name="state"),
@@ -75,6 +83,9 @@ class NetworkRL(Network):
     def build_gan(
         self, generator, discriminator, ignored_layer_names: Optional[List[str]] = None, model_name: str = "GAN"
     ) -> Model:
+        """ Modified version of the build_gan method defined in the parent class to handle additional inputs
+           (state & action)
+        """
         inputs = [Input(shape=tensor.shape[1:], name=tensor.name.split(":")[0]) for tensor in generator.inputs]
         outputs = generator(inputs)
         # Only use generated outputs as discriminator inputs that are not specified in 'ignored_layer_names'
@@ -150,7 +161,14 @@ class NetworkRL(Network):
         self.visualize_outputs_to_file(state=f"epoch_{epochs}", test_or_train_data="test")
         self.visualize_outputs_to_file(state=f"epoch_{epochs}", test_or_train_data="train")
 
-    def summarize_performance(self, n=100):
+    def summarize_performance(self, n: int = 100):
+        """Evaluate the discriminator
+
+        :param n:
+            n real samples and n fake samples are used for evaluation.
+        :return:
+            None
+        """
         # evaluate discriminator on fake examples
         test_indices = np.random.randint(0, self.test_data["state"].shape[0], n)
         gen_inputs = [self.test_data["state"][test_indices], self.test_data["action"][test_indices]]
@@ -188,8 +206,26 @@ class NetworkRL(Network):
         super().save_model_architecture_images(models, path, fmt)
 
     def visualize_outputs_to_file(
-        self, state, n_samples=5, trajectories=False, test_or_train_data="test", path="rl/images/plots"
+        self,
+        state: str,
+        n_samples: int = 5,
+        trajectories: bool = False,
+        test_or_train_data: str = "test",
+        path: str = "rl/images/plots"
     ):
+        """Visualizes the state, action, predicted next state and predicted reward and saves the resulting image
+
+        :param state:
+            Current state of the training
+        :param n_samples:
+            Number of samples that are visualized
+        :param trajectories:
+            If set to true, the predicted next state is used as state for the next time step and so on
+        :param test_or_train_data:
+            Whether to use state-action pairs from the train or test dataset
+        :param path:
+            Path to the directory where the resulting image is getting stored.
+        """
         print(f"Using {'test' if test_or_train_data == 'test' else 'train'} samples for plots!")
         data = self.test_data if test_or_train_data == "test" else self.train_data
         indexes = random.sample(range(data["state"].shape[0]), n_samples)
@@ -233,7 +269,7 @@ class NetworkRL(Network):
                 xy=(0, -0.5),
                 fontsize="x-small",
             )
-            # annotate_maze(next_state[0], self.env)
+            annotate_maze(next_state[0], self.env)
 
         save_plot_as_image(
             path=path,
@@ -243,6 +279,7 @@ class NetworkRL(Network):
 
 
 def annotate_maze(values, env):
+    """ Helper method to annotate each maze block with the probability of that block being the predicted next state """
     is_wall = env.maze.to_impassable()
     # The values are from row to row and not column to column that's why we start with y!
     for y in range(env.maze.size[0]):

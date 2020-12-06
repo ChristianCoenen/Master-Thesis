@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 def add_subplot(image, n_cols, n_rows, index):
+    """ Takes an image, the plot size and an index for positioning and adds the image to the plot """
     plot_obj = plt.subplot(n_cols, n_rows, index)
     plt.imshow(image, cmap="binary")
     plt.axis("off")
@@ -14,6 +15,7 @@ def add_subplot(image, n_cols, n_rows, index):
 
 
 def save_plot_as_image(path, filename, dpi=300):
+    """ Saves a plot that is currently in memory @ matplotlib and saves it as file """
     Path(path).mkdir(parents=True, exist_ok=True)
     full_path = f"{path}/{filename}"
     plt.savefig(full_path, dpi=dpi, bbox_inches="tight", pad_inches=0)
@@ -21,6 +23,7 @@ def save_plot_as_image(path, filename, dpi=300):
 
 
 def set_seeds(value):
+    """ Ensures controlled randomness by setting seeds for all used libraries """
     # 1. Set `PYTHONHASHSEED` environment variable at a fixed value
     os.environ["PYTHONHASHSEED"] = str(value)
     # 2. Set `python` built-in pseudo-random generator at a fixed value

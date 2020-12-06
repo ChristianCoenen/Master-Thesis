@@ -88,5 +88,16 @@ necessary certificates:
 ## Good to know
 1. All run scripts are designed to be invoked from the root directory! 
    (e.g. running ```main_dataset.py``` from within the *rl* folder does not work)
+   
+2. The main scripts in the experiment branches were invoked via PyCharm and likely fail to run
+   when invoked from the command line because the repository root folder is not in the pythonpath.
+   This can be addressed by adding the following lines on top of the run scripts.
+   ```py
+   import sys
+   import os
+   sys.path.insert(0, os.getcwd())
+   ```
+   Those lines are already included for all run scripts on the master branch.
+   
         
         

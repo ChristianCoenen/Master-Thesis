@@ -3,6 +3,12 @@ from sklearn.model_selection import train_test_split
 import numpy as np
 
 
+"""
+The methods here are just doing some dataset preparation for optimal use in the network classes.
+To understand whats happening here, I would take a look at the shape and structure of the data at the beginning
+of the method and then at the end (through debugging).
+"""
+
 def get_mnist(fashion=False):
     if fashion:
         (x_train, y_train), (x_test, y_test) = keras.datasets.fashion_mnist.load_data()

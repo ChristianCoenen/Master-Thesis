@@ -8,6 +8,7 @@ from .object import Object
 
 
 class BaseMaze(ABC):
+    """ Initializes the objects and defines methods that analyze the objects and return specific properties """
     def __init__(self, **kwargs):
         objects = self.make_objects()
         assert all([isinstance(obj, Object) for obj in objects])
@@ -19,12 +20,12 @@ class BaseMaze(ABC):
     @property
     @abstractmethod
     def size(self):
-        r"""Returns a pair of (height, width). """
+        """Returns a pair of (height, width). """
         pass
 
     @abstractmethod
     def make_objects(self):
-        r"""Returns a list of defined objects. """
+        """Returns a list of defined objects. """
         pass
 
     def _convert(self, x, name):
@@ -42,10 +43,12 @@ class BaseMaze(ABC):
         return self._convert(x, "value")
 
     def to_obs(self):
+        # This is currently hardcoded and should be changed in future / when adjusting the maze implementation
         obs = (self.to_value() == 4).flatten()
         return obs
 
     def to_valid_obs(self):
+        # This is currently hardcoded and should be changed in future / when adjusting the maze implementation
         obs = (self.to_value() == 4).flatten()
         obs = obs[self.to_impassable().flatten() == 0]
         return obs

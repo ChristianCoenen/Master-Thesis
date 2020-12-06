@@ -4,10 +4,8 @@ from dataclasses import field
 
 @dataclass
 class Object:
-    r"""Defines an object with some of its properties.
-
-    An object can be an obstacle, free space or food etc. It can also have properties like impassable, positions.
-
+    """
+    Defines an object and its properties.
     """
     name: str
     value: int
