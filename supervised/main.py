@@ -15,6 +15,7 @@ epn = NetworkSupervised(
     data=data,
     latent_dim=20,
     autoencoder_loss=["categorical_crossentropy", "binary_crossentropy"],
+    encoder_latent=False,
     weight_sharing=True,
     encoder_dims=[1024, 500, 256],
     discriminator_dims=[1024, 500, 256],
