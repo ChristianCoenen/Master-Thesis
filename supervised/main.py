@@ -1,6 +1,9 @@
-from epn import datasets
+import sys
+import os
+sys.path.insert(0, os.getcwd())
+from network import datasets
 from supervised.network_supervised import NetworkSupervised
-import epn.helper as helper
+import network.helper as helper
 
 seed_value = 30
 helper.set_seeds(seed_value)

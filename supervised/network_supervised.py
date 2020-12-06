@@ -5,8 +5,8 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.utils import to_categorical
 from numpy.random import randint
 from numpy import zeros, ones
-from epn.helper import add_subplot, save_plot_as_image
-from epn.network import Network
+from network.helper import add_subplot, save_plot_as_image
+from network.network import Network
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
@@ -203,7 +203,7 @@ class NetworkSupervised(Network):
         return acc * 100
 
     def save_model_architecture_images(
-        self, models: Optional[List[Model]] = None, path: str = "images/epn_supervised/architecture", fmt: str = "png"
+        self, models: Optional[List[Model]] = None, path: str = "supervised/images/architecture", fmt: str = "png"
     ):
         models = models if models is not None else []
         models.extend(
@@ -221,7 +221,7 @@ class NetworkSupervised(Network):
         self.save_reconstruction_plot_images(self.x_test_norm[20:30], state, acc=acc)
         self.save_fake_sample_plot_images()
 
-    def create_modified_classification_plot(self, sample_idx=None, path="images/epn_supervised/plots", random=False):
+    def create_modified_classification_plot(self, sample_idx=None, path="supervised/images/plots", random=False):
         """Creates reconstructions for one sample with all possible labels
 
         :param sample_idx:
@@ -303,7 +303,7 @@ class NetworkSupervised(Network):
         save_plot_as_image(path=path, filename=state)
 
     def save_fake_sample_plot_images(
-        self, x_fake=None, labels=None, epoch=-1, n_samples=100, path="images/epn_supervised/plots"
+        self, x_fake=None, labels=None, epoch=-1, n_samples=100, path="supervised/images/plots"
     ):
         """Create and save a plot of generated images (reversed grayscale)
 

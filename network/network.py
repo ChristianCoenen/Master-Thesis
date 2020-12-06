@@ -6,7 +6,7 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.utils import plot_model
 from tensorflow import Tensor
 from pathlib import Path
-from epn.custom_layers import DenseTranspose
+from network.custom_layers import DenseTranspose
 
 
 class Network:
@@ -268,7 +268,7 @@ class Network:
 
     @abc.abstractmethod
     def train(self, epochs: int, batch_size: int, steps_per_epoch: int, train_encoder: bool):
-        """ When using a epn architecture, a train function has to be provided """
+        """ When using a network architecture, a train function has to be provided """
         pass
 
     def save_model_architecture_images(self, models: List[Model], path: str, fmt: str = "png"):

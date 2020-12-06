@@ -1,5 +1,4 @@
 from abc import ABC
-
 from manim import *
 from manim import color as c
 from itertools import product

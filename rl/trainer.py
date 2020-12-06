@@ -123,7 +123,7 @@ class Trainer:
         return seconds
 
 
-def save_memories_to_file(memories, filename, path="data"):
+def save_memories_to_file(memories, filename, path="rl/data"):
     Path(path).mkdir(parents=True, exist_ok=True)
     np.save(f"{path}/{filename}", memories)
 

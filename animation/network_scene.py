@@ -1,8 +1,11 @@
-import epn.helper as helper
+import sys
+import os
+sys.path.insert(0, os.getcwd())
+import network.helper as helper
 import gym
 from manim import *
 from manim import color as c
-from animations.network_m_object_simple import NetworkMobjectSimple
+from animation.network_m_object_simple import NetworkMobjectSimple
 from rl.trainer import Trainer
 from maze.predefined_maze import x3
 from maze import Maze
