@@ -16,3 +16,5 @@ entropy_propagation.egg-info/
 *.npy
 
 animation/media/
+
+media/
