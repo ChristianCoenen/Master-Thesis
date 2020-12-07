@@ -3,6 +3,9 @@ import numpy as np
 import tensorflow as tf
 from pathlib import Path
 
+physical_devices = tf.config.list_physical_devices('GPU')
+[tf.config.experimental.set_memory_growth(physical_device, True) for physical_device in physical_devices]
+
 
 class Agent:
     """Simple Q learning agent"""
@@ -20,7 +23,7 @@ class Agent:
                 self.action_space.n, input_shape=(self.observation_space,), kernel_initializer="zeros", use_bias=bias
             )
         )
-        sgd = tf.keras.optimizers.SGD(learning_rate=0.1, momentum=0.0, nesterov=False, name="SGD")
+        sgd = tf.keras.optimizers.SGD(learning_rate=0.5, momentum=0.0, nesterov=False, name="SGD")
         model.compile(optimizer=sgd, loss="mse")
         return model
 
